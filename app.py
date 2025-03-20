@@ -113,8 +113,25 @@ def get_channel_info(youtube, channel_id):
 def get_video_details(youtube, video_ids):
     """Get detailed information about a batch of videos"""
     try:
+        # Optimize by limiting the number of videos we process
+        # If too many videos, take a representative sample
+        MAX_VIDEOS_TO_PROCESS = 500
+        if len(video_ids) > MAX_VIDEOS_TO_PROCESS:
+            st.info(f"Analyzing a sample of {MAX_VIDEOS_TO_PROCESS} videos to optimize performance")
+            # Select videos with a bias toward newer content but include some older ones
+            # Take first 300 (newest) and randomly sample 200 from the rest
+            import random
+            if len(video_ids) <= 300:
+                video_ids_sample = video_ids
+            else:
+                newer_videos = video_ids[:300]
+                older_videos = random.sample(video_ids[300:], min(200, len(video_ids) - 300))
+                video_ids_sample = newer_videos + older_videos
+        else:
+            video_ids_sample = video_ids
+        
         # Split video IDs into batches of 50 (API limit)
-        batches = [video_ids[i:i+50] for i in range(0, len(video_ids), 50)]
+        batches = [video_ids_sample[i:i+50] for i in range(0, len(video_ids_sample), 50)]
         all_videos = []
         
         with st.status("Fetching video details..."):
@@ -158,36 +175,75 @@ def get_video_details(youtube, video_ids):
             
             videos_data.append(video_data)
         
+        # If we sampled, note this in the data
+        if len(video_ids) > MAX_VIDEOS_TO_PROCESS:
+            st.info(f"Analysis based on a sample of {len(videos_data)} videos out of {len(video_ids)} total videos")
+        
         return pd.DataFrame(videos_data)
     except Exception as e:
         st.error(f"Error fetching video details: {str(e)}")
         return pd.DataFrame()
 
-def get_channel_videos(youtube, uploads_playlist_id, max_results=None):
-    """Get all videos from a channel's uploads playlist"""
+def get_channel_videos(youtube, uploads_playlist_id, time_frame="Lifetime"):
+    """Get videos from a channel's uploads playlist based on time frame"""
     video_ids = []
+    publish_after = None
     next_page_token = None
     
+    # Calculate publish_after date based on time_frame
+    if time_frame != "Lifetime":
+        now = datetime.now()
+        if time_frame == "Last 7 days":
+            publish_after = now - timedelta(days=7)
+        elif time_frame == "Last 30 days":
+            publish_after = now - timedelta(days=30)
+        elif time_frame == "Last 3 months":
+            publish_after = now - timedelta(days=90)
+        elif time_frame == "Last 6 months":
+            publish_after = now - timedelta(days=180)
+        elif time_frame == "Last year":
+            publish_after = now - timedelta(days=365)
+        
+        publish_after = publish_after.isoformat() + "Z" if publish_after else None
+    
+    # Set batch count to manage API calls efficiently
+    max_batches = 10 if time_frame == "Lifetime" else 2
+    batch_count = 0
+    
     with st.status("Fetching channel videos..."):
-        while True:
+        while True and batch_count < max_batches:
+            batch_count += 1
             st.write(f"Found {len(video_ids)} videos so far...")
             
             try:
                 response = youtube.playlistItems().list(
-                    part="contentDetails",
+                    part="snippet,contentDetails",
                     playlistId=uploads_playlist_id,
                     maxResults=50,  # API maximum
                     pageToken=next_page_token
                 ).execute()
                 
-                # Extract video IDs
+                # Extract video IDs and filter based on publishedAt if needed
                 for item in response.get("items", []):
+                    publishedAt = item["snippet"]["publishedAt"]
+                    
+                    # If a time frame is specified, check if the video is within that time frame
+                    if publish_after and publishedAt < publish_after:
+                        continue
+                        
                     video_ids.append(item["contentDetails"]["videoId"])
                 
                 # Check if we should continue fetching
                 next_page_token = response.get("nextPageToken")
                 
-                if not next_page_token or (max_results and len(video_ids) >= max_results):
+                # For lifetime, we limit to max_batches to optimize API usage
+                # For time frames, we stop if we reached a video older than our cutoff
+                if not next_page_token:
+                    break
+                    
+                # If we're using a time frame and the last video in this batch is already
+                # older than our cutoff, we can stop fetching more
+                if publish_after and response["items"][-1]["snippet"]["publishedAt"] < publish_after:
                     break
                 
                 # Respect API quota
@@ -196,10 +252,6 @@ def get_channel_videos(youtube, uploads_playlist_id, max_results=None):
             except Exception as e:
                 st.error(f"Error fetching videos: {str(e)}")
                 break
-    
-    # Limit results if specified
-    if max_results:
-        video_ids = video_ids[:max_results]
     
     return video_ids
 
@@ -321,12 +373,14 @@ def main():
     channel_url = st.text_input("Enter YouTube Channel URL", 
                                placeholder="https://www.youtube.com/channel/UCxxx... or https://www.youtube.com/@handle")
     
-    # Option to limit number of videos
+    # Option to select time frame
     col1, col2 = st.columns(2)
     with col1:
-        max_videos = st.number_input("Maximum videos to analyze (0 for all)", 
-                                    min_value=0, value=0, 
-                                    help="Set to 0 to analyze all videos (may take longer)")
+        time_frame = st.selectbox(
+            "Time frame to analyze", 
+            ["Lifetime", "Last 7 days", "Last 30 days", "Last 3 months", "Last 6 months", "Last year"],
+            help="Select the time period of videos to analyze"
+        )
     
     with col2:
         sort_by = st.selectbox("Sort videos by", 
@@ -378,9 +432,8 @@ def main():
                     st.write(f"🎬 **Total Videos:** {channel_info['Total Videos']:,}")
                     st.write(f"📅 **Created:** {channel_info['Created Date']}")
                 
-                # Get video IDs
-                max_to_fetch = max_videos if max_videos > 0 else None
-                video_ids = get_channel_videos(youtube, uploads_playlist_id, max_to_fetch)
+                # Get video IDs based on time frame
+                video_ids = get_channel_videos(youtube, uploads_playlist_id, time_frame)
                 
                 if not video_ids:
                     st.warning("No videos found for this channel.")
