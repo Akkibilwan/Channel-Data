@@ -92,11 +92,24 @@ def get_channel_info(youtube, channel_id):
         channel = response["items"][0]
         uploads_playlist_id = channel["contentDetails"]["relatedPlaylists"]["uploads"]
         
+        # Parse the publishedAt date with a more flexible approach
+        try:
+            publishedAt = channel["snippet"]["publishedAt"]
+            # Try the standard format first
+            try:
+                created_date = datetime.strptime(publishedAt, "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d")
+            except ValueError:
+                # If that fails, try with microseconds by truncating them
+                created_date = datetime.strptime(publishedAt.split(".", 1)[0] + "Z", "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d")
+        except Exception as e:
+            st.warning(f"Could not parse channel creation date: {publishedAt}")
+            created_date = "Unknown"
+        
         info = {
             "Channel Name": channel["snippet"]["title"],
             "Description": channel["snippet"]["description"],
             "Country": channel["snippet"].get("country", "Not specified"),
-            "Created Date": datetime.strptime(channel["snippet"]["publishedAt"], "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d"),
+            "Created Date": created_date,
             "Subscriber Count": int(channel["statistics"].get("subscriberCount", 0)),
             "Total Views": int(channel["statistics"].get("viewCount", 0)),
             "Total Videos": int(channel["statistics"].get("videoCount", 0)),
@@ -154,11 +167,19 @@ def get_video_details(youtube, video_ids):
             duration_str = video["contentDetails"]["duration"]
             duration_sec = parse_duration(duration_str)
             
-            # Format upload date
-            upload_date = datetime.strptime(
-                video["snippet"]["publishedAt"], 
-                "%Y-%m-%dT%H:%M:%SZ"
-            )
+            # Format upload date with more flexible parsing to handle microseconds
+            try:
+                publishedAt = video["snippet"]["publishedAt"]
+                # Try the standard format first
+                try:
+                    upload_date = datetime.strptime(publishedAt, "%Y-%m-%dT%H:%M:%SZ")
+                except ValueError:
+                    # If that fails, try with microseconds
+                    upload_date = datetime.strptime(publishedAt.split(".", 1)[0] + "Z", "%Y-%m-%dT%H:%M:%SZ")
+            except Exception as e:
+                # Fallback to current date if parsing fails completely
+                st.warning(f"Could not parse date: {publishedAt}")
+                upload_date = datetime.now()
             
             video_data = {
                 "Video ID": video["id"],
