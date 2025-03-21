@@ -5,7 +5,6 @@ import time
 import re
 from datetime import datetime, timedelta
 import googleapiclient.discovery
-import isodate
 import io
 import plotly.graph_objects as go
 import plotly.express as px
@@ -54,9 +53,28 @@ def format_number(num):
     else:
         return str(num)
 
-# Function to convert YouTube duration to seconds
+# Function to convert YouTube duration to seconds without using isodate
 def duration_to_seconds(duration_str):
-    return int(isodate.parse_duration(duration_str).total_seconds())
+    # YouTube duration format is ISO 8601: PT#H#M#S
+    hours = 0
+    minutes = 0
+    seconds = 0
+    
+    # Extract hours, minutes, seconds
+    hour_match = re.search(r'(\d+)H', duration_str)
+    if hour_match:
+        hours = int(hour_match.group(1))
+    
+    minute_match = re.search(r'(\d+)M', duration_str)
+    if minute_match:
+        minutes = int(minute_match.group(1))
+    
+    second_match = re.search(r'(\d+)S', duration_str)
+    if second_match:
+        seconds = int(second_match.group(1))
+    
+    # Calculate total seconds
+    return hours * 3600 + minutes * 60 + seconds
 
 # Function to format seconds to readable duration
 def format_duration(seconds):
