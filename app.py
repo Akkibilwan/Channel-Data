@@ -214,6 +214,9 @@ def get_video_details(youtube, videos):
                     duration_str = item['contentDetails'].get('duration', 'PT0S')
                     duration_seconds = parse_duration(duration_str)
                     
+                    # Determine if it's a short
+                    is_short = duration_seconds <= 120
+                    
                     # Statistics
                     stats = item.get('statistics', {})
                     views = int(stats.get('viewCount', 0))
@@ -248,6 +251,8 @@ def get_video_details(youtube, videos):
                         'upload_date': upload_date_str,
                         'duration_seconds': duration_seconds,
                         'duration': format_duration(duration_seconds),
+                        'is_short': is_short,
+                        'video_type': 'Short' if is_short else 'Long-form',
                         'views': views,
                         'views_per_hour': views_per_hour,
                         'vph_24h': vph_24h,
@@ -280,14 +285,29 @@ def get_video_details(youtube, videos):
     
     return video_details
 
-# Function to calculate daily view metrics (VidIQ style)
-def calculate_view_metrics(df, max_days=30):
+# Function to calculate daily view metrics (VidIQ style) with video type filtering
+def calculate_view_metrics(df, max_days=30, video_type='all'):
+    # Filter videos based on type
+    if video_type == 'long_form':
+        filtered_df = df[df['duration_seconds'] > 120].copy()
+    elif video_type == 'shorts':
+        filtered_df = df[df['duration_seconds'] <= 120].copy()
+    else:  # 'all'
+        filtered_df = df.copy()
+    
+    # If no videos match the filter, return empty DataFrame
+    if filtered_df.empty:
+        return pd.DataFrame(columns=['day', 'dailyViewSnapshot_lowest', 'dailyViewSnapshot_highest', 
+                                    'cumulativeViewTotal_min', 'cumulativeViewTotal_median',
+                                    'cumulativeViewTotal_max', 'cumulativeViewTotal_overall',
+                                    'cumulative_lowest', 'cumulative_highest', 'sample_size'])
+    
     # Initialize the data structures
     daily_snapshot = {day: [] for day in range(1, max_days + 1)}
     cumulative_totals = {day: [] for day in range(1, max_days + 1)}
     
     # Process each video
-    for _, video in df.iterrows():
+    for _, video in filtered_df.iterrows():
         total_views = video['views']
         days_old = video['days_since_upload']
         
@@ -451,6 +471,13 @@ def main():
             # Add video URL
             video_df['video_url'] = video_df['video_id'].apply(lambda x: f"https://www.youtube.com/watch?v={x}")
             
+            # Count video types
+            total_videos = len(video_df)
+            long_form_count = len(video_df[video_df['is_short'] == False])
+            shorts_count = len(video_df[video_df['is_short'] == True])
+            
+            st.write(f"Total Videos: {total_videos} | Long-form Videos (>120s): {long_form_count} | Shorts (≤120s): {shorts_count}")
+            
             # Display dataframe
             st.dataframe(
                 video_df,
@@ -460,6 +487,8 @@ def main():
                     "title": "Title",
                     "upload_date": "Upload Date",
                     "duration": "Duration",
+                    "duration_seconds": st.column_config.NumberColumn("Duration (sec)", format="%d"),
+                    "video_type": "Video Type",
                     "views": st.column_config.NumberColumn("Views", format="%d"),
                     "views_per_hour": st.column_config.NumberColumn("Views Per Hour", format="%.2f"),
                     "vph_24h": st.column_config.NumberColumn("VPH (24h)", format="%.2f"),
@@ -470,7 +499,8 @@ def main():
                     "comments": st.column_config.NumberColumn("Comments", format="%d"),
                     "engagement_rate": st.column_config.NumberColumn("Engagement Rate (%)", format="%.2f"),
                     "days_since_upload": "Days Since Upload",
-                    "month": "Month"
+                    "month": "Month",
+                    "is_short": None  # Hide this column
                 }
             )
             
@@ -503,12 +533,39 @@ def main():
             # Create Excel download
             st.subheader("Download Data")
             
-            # Create Excel file
+            # Create Excel file with sheets for each type
             excel_buffer = io.BytesIO()
             
             with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                video_df.to_excel(writer, sheet_name='Video Data', index=False)
-                view_metrics.to_excel(writer, sheet_name='View Metrics', index=False)
+                # Add video data
+                video_df.to_excel(writer, sheet_name='All Videos', index=False)
+                
+                # Add filtered video data
+                long_form_df = video_df[video_df['is_short'] == False].copy()
+                if not long_form_df.empty:
+                    long_form_df.to_excel(writer, sheet_name='Long-form Videos', index=False)
+                
+                shorts_df = video_df[video_df['is_short'] == True].copy()
+                if not shorts_df.empty:
+                    shorts_df.to_excel(writer, sheet_name='Shorts', index=False)
+                
+                # Add metrics for all video types
+                view_metrics.to_excel(writer, sheet_name=f'Metrics - {video_type_filter}', index=False)
+                
+                # Add metrics for other types if not already selected
+                if video_type != 'all':
+                    all_metrics = calculate_view_metrics(video_df, max_days, 'all')
+                    all_metrics.to_excel(writer, sheet_name='Metrics - All Videos', index=False)
+                    
+                if video_type != 'long_form':
+                    long_form_metrics = calculate_view_metrics(video_df, max_days, 'long_form')
+                    if not long_form_metrics.empty:
+                        long_form_metrics.to_excel(writer, sheet_name='Metrics - Long-form', index=False)
+                
+                if video_type != 'shorts':
+                    shorts_metrics = calculate_view_metrics(video_df, max_days, 'shorts')
+                    if not shorts_metrics.empty:
+                        shorts_metrics.to_excel(writer, sheet_name='Metrics - Shorts', index=False)
             
             excel_buffer.seek(0)
             
