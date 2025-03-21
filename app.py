@@ -181,6 +181,18 @@ def get_video_details(youtube, video_ids):
                 st.warning(f"Could not parse date: {publishedAt}")
                 upload_date = datetime.now()
             
+            # Calculate hours since upload for view-per-hour metric
+            hours_since_upload = max(1, (datetime.now() - upload_date).total_seconds() / 3600)
+            
+            # Calculate views per hour
+            views_per_hour = round(int(video["statistics"].get("viewCount", 0)) / hours_since_upload, 2)
+            
+            # Calculate engagement rate: (likes + comments) / views * 100
+            views = int(video["statistics"].get("viewCount", 1))  # Avoid division by zero
+            likes = int(video["statistics"].get("likeCount", 0))
+            comments = int(video["statistics"].get("commentCount", 0))
+            engagement_rate = round(((likes + comments) / views) * 100, 2)
+            
             video_data = {
                 "Video ID": video["id"],
                 "Title": video["snippet"]["title"],
@@ -188,8 +200,10 @@ def get_video_details(youtube, video_ids):
                 "Duration (sec)": duration_sec,
                 "Duration": format_duration(duration_sec),
                 "Views": int(video["statistics"].get("viewCount", 0)),
+                "Views Per Hour": views_per_hour,
                 "Likes": int(video["statistics"].get("likeCount", 0)),
                 "Comments": int(video["statistics"].get("commentCount", 0)),
+                "Engagement Rate (%)": engagement_rate,
                 "Description": video["snippet"]["description"],
                 "Thumbnail URL": video["snippet"]["thumbnails"]["high"]["url"] if "high" in video["snippet"]["thumbnails"] else ""
             }
@@ -309,6 +323,8 @@ def calculate_metrics(df):
         "Total Views": df['Views'].sum(),
         "Average Views": round(df['Views'].mean(), 2),
         "Median Views": df['Views'].median(),
+        "Average Views Per Hour": round(df['Views Per Hour'].mean(), 2),
+        "Average Engagement Rate (%)": round(df['Engagement Rate (%)'].mean(), 2),
         "Average Comments": round(df['Comments'].mean(), 2),
         "Average Likes": round(df['Likes'].mean(), 2),
         "Average Duration": format_duration(df['Duration (sec)'].mean()),
@@ -318,6 +334,8 @@ def calculate_metrics(df):
         "Most Viewed Video URL": f"https://www.youtube.com/watch?v={df.loc[df['Views'].idxmax(), 'Video ID']}",
         "Most Liked Video": df.loc[df['Likes'].idxmax(), 'Title'],
         "Most Commented Video": df.loc[df['Comments'].idxmax(), 'Title'],
+        "Highest Engagement Rate Video": df.loc[df['Engagement Rate (%)'].idxmax(), 'Title'],
+        "Highest Views Per Hour Video": df.loc[df['Views Per Hour'].idxmax(), 'Title'],
         "Upload Frequency (days)": round(df['Days Since Upload'].diff().mean(), 2),
     }
     
@@ -497,14 +515,15 @@ def main():
                     with col1:
                         st.metric("Total Videos", f"{metrics['Total Videos']:,}")
                         st.metric("Total Views", f"{metrics['Total Views']:,}")
-                        st.metric("Average Views", f"{metrics['Average Views']:,}")
-                        st.metric("Median Views", f"{metrics['Median Views']:,}")
+                        st.metric("Average Views", f"{metrics['Average Views']:,.1f}")
+                        st.metric("Median Views", f"{metrics['Median Views']:,.1f}")
+                        st.metric("Average Views Per Hour", f"{metrics['Average Views Per Hour']:,.1f}")
                     
                     with col2:
-                        st.metric("Average Likes", f"{metrics['Average Likes']:,}")
-                        st.metric("Average Comments", f"{metrics['Average Comments']:,}")
-                        st.metric("Like-to-View Ratio", f"{metrics['Like-to-View Ratio (%)']}%")
-                        st.metric("Comment-to-View Ratio", f"{metrics['Comment-to-View Ratio (%)']}%")
+                        st.metric("Average Likes", f"{metrics['Average Likes']:,.1f}")
+                        st.metric("Average Comments", f"{metrics['Average Comments']:,.1f}")
+                        st.metric("Like-to-View Ratio", f"{metrics['Like-to-View Ratio (%)']:.2f}%")
+                        st.metric("Average Engagement Rate", f"{metrics['Average Engagement Rate (%)']:.2f}%")
                     
                     with col3:
                         st.metric("Average Duration", metrics['Average Duration'])
@@ -532,10 +551,12 @@ def main():
                     st.header("All Videos")
                     
                     # Create a display version of the dataframe with only key columns
-                    display_df = videos_df[["Title", "Upload Date", "Duration", "Views", "Likes", "Comments"]].copy()
+                    display_df = videos_df[["Title", "Upload Date", "Duration", "Views", "Views Per Hour", "Engagement Rate (%)", "Likes", "Comments"]].copy()
                     
                     # Format numbers
                     display_df["Views"] = display_df["Views"].apply(lambda x: f"{x:,}")
+                    display_df["Views Per Hour"] = display_df["Views Per Hour"].apply(lambda x: f"{x:,.1f}")
+                    display_df["Engagement Rate (%)"] = display_df["Engagement Rate (%)"].apply(lambda x: f"{x:.2f}%")
                     display_df["Likes"] = display_df["Likes"].apply(lambda x: f"{x:,}")
                     display_df["Comments"] = display_df["Comments"].apply(lambda x: f"{x:,}")
                     
@@ -548,24 +569,126 @@ def main():
                     # Display monthly data
                     st.dataframe(monthly_data, use_container_width=True)
                     
-                    # Create monthly charts
-                    monthly_data_sorted = monthly_data.sort_values('Month')
+                    # Performance by video age
+                    video_age_performance = pd.DataFrame({
+                        "Age Group": ["< 7 days", "7-30 days", "30-90 days", "90-180 days", "180-365 days", "> 365 days"],
+                        "Average Views Per Hour": [
+                            videos_df[videos_df["Age (days)"] < 7]["Views Per Hour"].mean(),
+                            videos_df[(videos_df["Age (days)"] >= 7) & (videos_df["Age (days)"] < 30)]["Views Per Hour"].mean(),
+                            videos_df[(videos_df["Age (days)"] >= 30) & (videos_df["Age (days)"] < 90)]["Views Per Hour"].mean(),
+                            videos_df[(videos_df["Age (days)"] >= 90) & (videos_df["Age (days)"] < 180)]["Views Per Hour"].mean(),
+                            videos_df[(videos_df["Age (days)"] >= 180) & (videos_df["Age (days)"] < 365)]["Views Per Hour"].mean(),
+                            videos_df[videos_df["Age (days)"] >= 365]["Views Per Hour"].mean()
+                        ],
+                        "Average Engagement Rate": [
+                            videos_df[videos_df["Age (days)"] < 7]["Engagement Rate (%)"].mean(),
+                            videos_df[(videos_df["Age (days)"] >= 7) & (videos_df["Age (days)"] < 30)]["Engagement Rate (%)"].mean(),
+                            videos_df[(videos_df["Age (days)"] >= 30) & (videos_df["Age (days)"] < 90)]["Engagement Rate (%)"].mean(),
+                            videos_df[(videos_df["Age (days)"] >= 90) & (videos_df["Age (days)"] < 180)]["Engagement Rate (%)"].mean(),
+                            videos_df[(videos_df["Age (days)"] >= 180) & (videos_df["Age (days)"] < 365)]["Engagement Rate (%)"].mean(),
+                            videos_df[videos_df["Age (days)"] >= 365]["Engagement Rate (%)"].mean()
+                        ]
+                    })
                     
-                    # Views chart
-                    st.subheader("Monthly Views")
-                    st.line_chart(monthly_data_sorted.set_index('Month')['Total Views'])
+                    # Format values
+                    video_age_performance["Average Views Per Hour"] = video_age_performance["Average Views Per Hour"].apply(lambda x: round(x, 2))
+                    video_age_performance["Average Engagement Rate"] = video_age_performance["Average Engagement Rate"].apply(lambda x: f"{round(x, 2)}%")
                     
-                    # Videos published chart
-                    st.subheader("Videos Published per Month")
-                    st.bar_chart(monthly_data_sorted.set_index('Month')['Videos Published'])
-                    
-                    # Engagement chart
-                    st.subheader("Monthly Engagement")
-                    engagement_df = monthly_data_sorted.set_index('Month')[['Total Likes', 'Total Comments']]
-                    st.line_chart(engagement_df)
+                    st.subheader("Performance by Video Age")
+                    st.dataframe(video_age_performance, use_container_width=True)
                 
-                # Tab 4: Raw Data
+                # Tab 4: Engagement Analysis
                 with tab4:
+                    st.header("Engagement Analysis")
+                    
+                    # Sort videos by engagement rate
+                    engagement_df = videos_df.sort_values("Engagement Rate (%)", ascending=False).head(20)
+                    
+                    st.subheader("Top 20 Videos by Engagement Rate")
+                    engagement_display = engagement_df[["Title", "Upload Date", "Views", "Engagement Rate (%)", "Likes", "Comments"]].copy()
+                    
+                    # Format numbers
+                    engagement_display["Views"] = engagement_display["Views"].apply(lambda x: f"{x:,}")
+                    engagement_display["Engagement Rate (%)"] = engagement_display["Engagement Rate (%)"].apply(lambda x: f"{x:.2f}%")
+                    engagement_display["Likes"] = engagement_display["Likes"].apply(lambda x: f"{x:,}")
+                    engagement_display["Comments"] = engagement_display["Comments"].apply(lambda x: f"{x:,}")
+                    
+                    st.dataframe(engagement_display, use_container_width=True)
+                    
+                    # Create a scatter plot of engagement rate vs views
+                    st.subheader("Engagement Rate vs. Views")
+                    
+                    scatter_data = videos_df[["Title", "Views", "Engagement Rate (%)"]]
+                    scatter_data = scatter_data.rename(columns={"Engagement Rate (%)": "Engagement_Rate"})
+                    
+                    # Use Plotly for an interactive scatter plot
+                    import plotly.express as px
+                    fig = px.scatter(
+                        scatter_data, 
+                        x="Views", 
+                        y="Engagement_Rate",
+                        hover_name="Title",
+                        log_x=True,  # Log scale for views to better visualize the distribution
+                        labels={"Views": "Views (log scale)", "Engagement_Rate": "Engagement Rate (%)"},
+                        title="Video Performance: Engagement Rate vs Views",
+                        color="Engagement_Rate",
+                        color_continuous_scale="Viridis"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                # Tab 5: Views Per Hour Analysis
+                with tab5:
+                    st.header("Views Per Hour Analysis")
+                    
+                    # Sort videos by views per hour
+                    vph_df = videos_df.sort_values("Views Per Hour", ascending=False).head(20)
+                    
+                    st.subheader("Top 20 Videos by Views Per Hour")
+                    vph_display = vph_df[["Title", "Upload Date", "Views", "Views Per Hour", "Duration"]].copy()
+                    
+                    # Format numbers
+                    vph_display["Views"] = vph_display["Views"].apply(lambda x: f"{x:,}")
+                    vph_display["Views Per Hour"] = vph_display["Views Per Hour"].apply(lambda x: f"{x:.1f}")
+                    
+                    st.dataframe(vph_display, use_container_width=True)
+                    
+                    # Analyze views per hour by video age
+                    st.subheader("Views Per Hour by Video Age")
+                    
+                    # Calculate video age in days for the plot
+                    videos_df["Age (days)"] = (datetime.now() - pd.to_datetime(videos_df["Upload Date"])).dt.days
+                    
+                    # Use Plotly for an interactive scatter plot
+                    fig2 = px.scatter(
+                        videos_df, 
+                        x="Age (days)", 
+                        y="Views Per Hour",
+                        hover_name="Title",
+                        labels={"Age (days)": "Video Age (days)", "Views Per Hour": "Views Per Hour"},
+                        title="Video Performance: Views Per Hour vs Video Age",
+                        color="Views Per Hour",
+                        color_continuous_scale="Viridis",
+                        size="Views",
+                        size_max=50
+                    )
+                    st.plotly_chart(fig2, use_container_width=True)
+                    
+                    # Views per hour by duration
+                    st.subheader("Views Per Hour by Video Duration")
+                    fig3 = px.scatter(
+                        videos_df, 
+                        x="Duration (sec)", 
+                        y="Views Per Hour",
+                        hover_name="Title",
+                        labels={"Duration (sec)": "Video Duration (seconds)", "Views Per Hour": "Views Per Hour"},
+                        title="Video Performance: Views Per Hour vs Duration",
+                        color="Views Per Hour",
+                        color_continuous_scale="Viridis"
+                    )
+                    st.plotly_chart(fig3, use_container_width=True)
+                
+                # Tab 6: Raw Data
+                with tab6:
                     st.header("Raw Data")
                     st.dataframe(videos_df, use_container_width=True)
                 
