@@ -145,8 +145,19 @@ if st.button("Analyze Channel") and channel_url:
             st.write(f"Total Videos: {info['Total Videos']:,}")
             st.write(f"Created: {info['Created Date']}")
             videos = get_video_details(youtube, [video['contentDetails']['videoId'] for video in youtube.playlistItems().list(part="contentDetails", playlistId=playlist_id, maxResults=50).execute()['items']])
-            avg_metrics = videos[["Views Per Hour", "VPH (24h)", "VPH (3d)", "VPH (1w)", "VPH (1m)", "Engagement Rate (%)", "Likes", "Comments"].copy()].mean().round(2)
-            st.metric("Average VPH", f"{avg_metrics['Views Per Hour']} views/hour")
+            recent_24h = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(hours=24))]
+recent_3d = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=3))]
+recent_1w = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(weeks=1))]
+recent_1m = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=30))]
+            st.subheader("VPH based on Recency")
+if not recent_24h.empty:
+    st.metric("Avg VPH (Past 24h)", f"{recent_24h['Views Per Hour'].mean():.2f} views/hour")
+if not recent_3d.empty:
+    st.metric("Avg VPH (Past 3 days)", f"{recent_3d['Views Per Hour'].mean():.2f} views/hour")
+if not recent_1w.empty:
+    st.metric("Avg VPH (Past week)", f"{recent_1w['Views Per Hour'].mean():.2f} views/hour")
+if not recent_1m.empty:
+    st.metric("Avg VPH (Past month)", f"{recent_1m['Views Per Hour'].mean():.2f} views/hour")
             st.metric("Avg VPH (24h)", f"{avg_metrics['VPH (24h)']} views/hour")
             st.metric("Avg VPH (3d)", f"{avg_metrics['VPH (3d)']} views/hour")
             st.metric("Avg VPH (1w)", f"{avg_metrics['VPH (1w)']} views/hour")
