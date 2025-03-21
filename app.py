@@ -280,50 +280,63 @@ def get_video_details(youtube, videos):
     
     return video_details
 
-# Function to calculate daily view ranges
+# Function to calculate daily view ranges (VidIQ style)
 def calculate_daily_view_ranges(df, max_days=30):
-    daily_data = []
+    # Create data structure to hold daily performance
+    daily_views = {day: [] for day in range(1, max_days + 1)}
     
-    # For each day, calculate view statistics
-    for day in range(1, max_days + 1):
-        # Get videos old enough for this day
-        videos_for_day = df[df['days_since_upload'] >= day].copy()
+    # For each video, estimate its views at each day of its lifecycle
+    for _, video in df.iterrows():
+        total_views = video['views']
+        days_old = video['days_since_upload']
         
-        if not videos_for_day.empty:
-            # Estimate views at this day for each video
-            day_views = []
-            
-            for _, video in videos_for_day.iterrows():
-                total_views = video['views']
-                days_old = video['days_since_upload']
+        # Skip videos with no views
+        if total_views == 0:
+            continue
+        
+        # For each day in the video's lifecycle (up to max_days)
+        for day in range(1, min(max_days + 1, days_old + 1)):
+            # For older videos, we need to estimate historical views
+            if days_old > max_days:
+                # Estimate using a curve that models typical YouTube view distribution
+                # Views tend to accumulate faster in earlier days
                 
-                # Simple estimation: assume views grow according to a power curve
-                # Estimate what the views were at "day"
-                if days_old > day:
-                    # Using power curve for more realistic view distribution
-                    # Videos tend to get more views early on
-                    day_fraction = day / days_old
-                    view_fraction = day_fraction ** 0.8  # Slightly front-loaded
-                    estimated_views = int(total_views * view_fraction)
-                else:
-                    # For videos exactly this old, use actual views
-                    estimated_views = total_views
+                # Calculate what fraction of total days this represents
+                day_fraction = day / days_old
                 
-                day_views.append(estimated_views)
+                # Use a curve that gives more weight to early days
+                # Power values less than 1 create curves where growth is faster initially
+                view_fraction = day_fraction ** 0.7
+                
+                # Calculate estimated views at this day
+                day_views = int(total_views * view_fraction)
+            else:
+                # For newer videos, use actual total views for current age
+                day_views = total_views
             
-            # Calculate statistics
-            if day_views:
-                daily_data.append({
-                    'day': day,
-                    'min_views': int(min(day_views)),
-                    'lower_range': int(np.percentile(day_views, 25)),
-                    'median': int(np.percentile(day_views, 50)),
-                    'upper_range': int(np.percentile(day_views, 75)),
-                    'max_views': int(max(day_views)),
-                    'sample_size': len(day_views)
-                })
+            # Add to our collection
+            daily_views[day].append(day_views)
     
-    return pd.DataFrame(daily_data)
+    # Now calculate statistics for each day
+    results = []
+    for day in range(1, max_days + 1):
+        views = daily_views[day]
+        
+        # Only include days with enough data
+        if len(views) >= 3:  # Require at least 3 videos for meaningful stats
+            results.append({
+                'day': day,
+                'min_views': int(min(views)),
+                'average_min': int(np.percentile(views, 10)),  # Bottom 10% average
+                'lower_range': int(np.percentile(views, 25)),
+                'median': int(np.percentile(views, 50)),
+                'upper_range': int(np.percentile(views, 75)),
+                'average_max': int(np.percentile(views, 90)),  # Top 10% average
+                'max_views': int(max(views)),
+                'sample_size': len(views)
+            })
+    
+    return pd.DataFrame(results)
 
 # Main app
 def main():
@@ -440,16 +453,25 @@ def main():
             view_ranges = calculate_daily_view_ranges(video_df, max_days)
             
             # Display view ranges
-            st.write("This shows the typical cumulative view ranges for videos on each day after publishing:")
+            st.write("This shows the cumulative view ranges for videos on each day after publishing:")
+            st.write("- **Min Views**: Absolute minimum views any video had by this day")
+            st.write("- **Average Min**: Average of bottom 10% performers (VidIQ's typical lower range)")
+            st.write("- **Lower Range**: 25th percentile of views")
+            st.write("- **Median**: 50th percentile (middle point)")
+            st.write("- **Upper Range**: 75th percentile of views")
+            st.write("- **Average Max**: Average of top 10% performers (VidIQ's typical upper range)")
+            st.write("- **Max Views**: Absolute maximum views any video had by this day")
             
             st.dataframe(
                 view_ranges,
                 column_config={
                     "day": "Day",
                     "min_views": st.column_config.NumberColumn("Min Views", format="%d"),
+                    "average_min": st.column_config.NumberColumn("Average Min", format="%d"),
                     "lower_range": st.column_config.NumberColumn("Lower Range (25%)", format="%d"),
                     "median": st.column_config.NumberColumn("Median (50%)", format="%d"),
                     "upper_range": st.column_config.NumberColumn("Upper Range (75%)", format="%d"),
+                    "average_max": st.column_config.NumberColumn("Average Max", format="%d"),
                     "max_views": st.column_config.NumberColumn("Max Views", format="%d"),
                     "sample_size": "Sample Size"
                 }
