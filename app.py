@@ -6,7 +6,6 @@ import os
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 import time
-import base64
 from io import BytesIO
 
 st.set_page_config(
@@ -19,6 +18,7 @@ st.set_page_config(
 def get_youtube_client(api_key):
     return build('youtube', 'v3', developerKey=api_key)
 
+# Utility functions
 def parse_duration(duration_str):
     match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration_str)
     if not match:
@@ -31,11 +31,9 @@ def parse_duration(duration_str):
 def format_duration(duration_sec):
     hours, remainder = divmod(duration_sec, 3600)
     minutes, seconds = divmod(remainder, 60)
-    if hours > 0:
-        return f"{int(hours)}:{int(minutes):02d}:{int(seconds):02d}"
-    else:
-        return f"{int(minutes)}:{int(seconds):02d}"
+    return f"{int(hours)}:{int(minutes):02d}:{int(seconds):02d}" if hours > 0 else f"{int(minutes)}:{int(seconds):02d}"
 
+# Extract and resolve channel ID
 def extract_channel_id(url):
     patterns = [
         r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/channel\/([a-zA-Z0-9_-]+)',
@@ -46,13 +44,11 @@ def extract_channel_id(url):
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
-            if "channel" in pattern:
-                return match.group(1), None, pattern
-            else:
-                return None, match.group(1), pattern
+            return (match.group(1), None, pattern) if "channel" in pattern else (None, match.group(1), pattern)
     st.error("Invalid YouTube channel URL format.")
     return None, None, None
 
+# Resolve custom URLs or handles
 def resolve_channel_id(youtube, identifier, pattern_type):
     try:
         if "user" in pattern_type:
@@ -62,15 +58,12 @@ def resolve_channel_id(youtube, identifier, pattern_type):
             if response.get("items"):
                 return response["items"][0]["id"]["channelId"]
             response = youtube.channels().list(part="id", forUsername=identifier).execute()
-        if response.get("items"):
-            return response["items"][0]["id"]
-        else:
-            st.error(f"Could not resolve channel identifier: {identifier}")
-            return None
+        return response["items"][0]["id"] if response.get("items") else None
     except Exception as e:
         st.error(f"Error resolving channel ID: {str(e)}")
         return None
 
+# Fetch channel info
 def get_channel_info(youtube, channel_id):
     response = youtube.channels().list(part="snippet,statistics,contentDetails", id=channel_id).execute()
     if not response.get("items"):
@@ -93,6 +86,7 @@ def get_channel_info(youtube, channel_id):
     }
     return info, uploads_playlist_id
 
+# Fetch videos
 def get_video_details(youtube, video_ids):
     batches = [video_ids[i:i+50] for i in range(0, len(video_ids), 50)]
     all_videos = []
@@ -126,45 +120,43 @@ def get_video_details(youtube, video_ids):
         })
     return pd.DataFrame(videos_data)
 
+# Streamlit UI
 st.title("📊 YouTube Channel Analyzer")
-# api_key = st.secrets["youtube_api_key"]
 api_key = st.secrets["youtube_api_key"]
 channel_url = st.text_input("Enter YouTube Channel URL")
 if st.button("Analyze Channel") and channel_url:
-    if api_key and channel_url:
-        youtube = get_youtube_client(api_key)
-        channel_id, identifier, pattern = extract_channel_id(channel_url)
-        if not channel_id and identifier:
-            channel_id = resolve_channel_id(youtube, identifier, pattern)
-        if channel_id:
-            info, playlist_id = get_channel_info(youtube, channel_id)
-            st.image(info["Thumbnail URL"], width=200)
-            st.subheader(info["Channel Name"])
-            st.write(f"Subscribers: {info['Subscribers']:,}")
-            st.write(f"Total Views: {info['Total Views']:,}")
-            st.write(f"Total Videos: {info['Total Videos']:,}")
-            st.write(f"Created: {info['Created Date']}")
-            videos = get_video_details(youtube, [video['contentDetails']['videoId'] for video in youtube.playlistItems().list(part="contentDetails", playlistId=playlist_id, maxResults=50).execute()['items']])
-            recent_24h = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(hours=24))]
-recent_3d = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=3))]
-recent_1w = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(weeks=1))]
-recent_1m = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=30))]
-                        st.subheader("VPH based on Recency")
-            if not recent_24h.empty:
-    st.metric("Avg VPH (Past 24h)", f"{recent_24h['Views Per Hour'].mean():.2f} views/hour")
-            if not recent_3d.empty:
-    st.metric("Avg VPH (Past 3 days)", f"{recent_3d['Views Per Hour'].mean():.2f} views/hour")
-            if not recent_1w.empty:
-    st.metric("Avg VPH (Past week)", f"{recent_1w['Views Per Hour'].mean():.2f} views/hour")
-            if not recent_1m.empty:
-    st.metric("Avg VPH (Past month)", f"{recent_1m['Views Per Hour'].mean():.2f} views/hour")
-            st.metric("Avg VPH (24h)", f"{avg_metrics['VPH (24h)']} views/hour")
-            st.metric("Avg VPH (3d)", f"{avg_metrics['VPH (3d)']} views/hour")
-            st.metric("Avg VPH (1w)", f"{avg_metrics['VPH (1w)']} views/hour")
-            st.metric("Avg VPH (1m)", f"{avg_metrics['VPH (1m)']} views/hour")
-            st.metric("Avg Engagement Rate", f"{avg_metrics['Engagement Rate (%)']}%")
-            st.metric("Avg Likes", f"{avg_metrics['Likes']:,}")
-            st.metric("Avg Comments", f"{avg_metrics['Comments']:,}")
-            st.dataframe(videos, use_container_width=True)
-    else:
-        st.warning("Please enter the YouTube channel URL")
+    youtube = get_youtube_client(api_key)
+    channel_id, identifier, pattern = extract_channel_id(channel_url)
+    if not channel_id and identifier:
+        channel_id = resolve_channel_id(youtube, identifier, pattern)
+    if channel_id:
+        info, playlist_id = get_channel_info(youtube, channel_id)
+        st.image(info["Thumbnail URL"], width=200)
+        st.subheader(info["Channel Name"])
+        st.write(f"Subscribers: {info['Subscribers']:,}")
+        st.write(f"Total Views: {info['Total Views']:,}")
+        st.write(f"Total Videos: {info['Total Videos']:,}")
+        st.write(f"Created: {info['Created Date']}")
+
+        video_ids = [video['contentDetails']['videoId'] for video in youtube.playlistItems().list(part="contentDetails", playlistId=playlist_id, maxResults=50).execute()['items']]
+        videos = get_video_details(youtube, video_ids)
+
+        recent_24h = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(hours=24))]
+        recent_3d = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=3))]
+        recent_1w = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(weeks=1))]
+        recent_1m = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=30))]
+
+        st.subheader("VPH based on Recency")
+        if not recent_24h.empty:
+            st.metric("Avg VPH (Past 24h)", f"{recent_24h['Views Per Hour'].mean():.2f} views/hour")
+        if not recent_3d.empty:
+            st.metric("Avg VPH (Past 3 days)", f"{recent_3d['Views Per Hour'].mean():.2f} views/hour")
+        if not recent_1w.empty:
+            st.metric("Avg VPH (Past week)", f"{recent_1w['Views Per Hour'].mean():.2f} views/hour")
+        if not recent_1m.empty:
+            st.metric("Avg VPH (Past month)", f"{recent_1m['Views Per Hour'].mean():.2f} views/hour")
+
+        st.subheader("Video Performance Table")
+        st.dataframe(videos, use_container_width=True)
+else:
+    st.warning("Please enter the YouTube channel URL")
