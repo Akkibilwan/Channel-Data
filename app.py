@@ -1,12 +1,11 @@
 # Calculate daily cumulative lower and upper view ranges (for long-form videos)
-        videos = videos[videos['Duration (sec)'] > 12]
+        videos_long = videos[videos['Duration (sec)'] > 12]
         lifespan_ranges = []
-        max_days = videos["Days Since Upload"].max()
+        max_days = videos_long["Days Since Upload"].max()
 
         for day in range(1, max_days + 1):
             cumulative_views = []
-            for _, row in videos.iterrows():
-                # Approximate cumulative view logic assuming linear view growth
+            for _, row in videos_long.iterrows():
                 days_since_upload = row['Days Since Upload']
                 if days_since_upload >= day:
                     cumulative_views.append(row['Views'] * (day / days_since_upload))
@@ -17,18 +16,6 @@
                     "Day": day,
                     "Lower Range (25th percentile)": round(lower, 2),
                     "Upper Range (75th percentile)": round(upper, 2)
-                })
-        max_days = videos["Days Since Upload"].max()
-
-        for day in range(1, max_days + 1):
-            subset = videos[videos["Days Since Upload"] >= day]
-            if not subset.empty:
-                lower_range = subset["Views"].quantile(0.25)
-                upper_range = subset["Views"].quantile(0.75)
-                lifespan_ranges.append({
-                    "Day": day,
-                    "Lower Range (25th percentile)": round(lower_range, 2),
-                    "Upper Range (75th percentile)": round(upper_range, 2)
                 })
 
         lifespan_df = pd.DataFrame(lifespan_ranges)
