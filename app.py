@@ -145,10 +145,10 @@ if st.button("Analyze Channel") and channel_url:
             st.write(f"Total Videos: {info['Total Videos']:,}")
             st.write(f"Created: {info['Created Date']}")
             videos = get_video_details(youtube, [video['contentDetails']['videoId'] for video in youtube.playlistItems().list(part="contentDetails", playlistId=playlist_id, maxResults=50).execute()['items']])
-            recent_24h = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(hours=24))]]
-recent_3d = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=3))]]
-recent_1w = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(weeks=1))]]
-recent_1m = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=30))]]
+            recent_24h = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(hours=24))]
+recent_3d = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=3))]
+recent_1w = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(weeks=1))]
+recent_1m = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=30))]
                         st.subheader("VPH based on Recency")
             if not recent_24h.empty:
     st.metric("Avg VPH (Past 24h)", f"{recent_24h['Views Per Hour'].mean():.2f} views/hour")
