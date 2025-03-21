@@ -105,8 +105,10 @@ def get_video_details(youtube, video_ids):
         vph_1w = round(views / min(hours_since_upload, 168), 2)
         vph_1m = round(views / min(hours_since_upload, 720), 2)
         videos_data.append({
+            "Video ID": video["id"],
             "Title": video["snippet"]["title"],
             "Upload Date": upload_date.strftime("%Y-%m-%d"),
+            "Duration (sec)": duration_sec,
             "Duration": format_duration(duration_sec),
             "Views": views,
             "Views Per Hour": round(views / hours_since_upload, 2),
@@ -116,7 +118,9 @@ def get_video_details(youtube, video_ids):
             "VPH (1m)": vph_1m,
             "Likes": int(video["statistics"].get("likeCount", 0)),
             "Comments": int(video["statistics"].get("commentCount", 0)),
-            "Engagement Rate (%)": round(((int(video["statistics"].get("likeCount", 0)) + int(video["statistics"].get("commentCount", 0))) / max(views, 1)) * 100, 2)
+            "Engagement Rate (%)": round(((int(video["statistics"].get("likeCount", 0)) + int(video["statistics"].get("commentCount", 0))) / max(views, 1)) * 100, 2),
+            "Description": video["snippet"]["description"],
+            "Thumbnail URL": video["snippet"]["thumbnails"].get("high", {}).get("url", "")
         })
     return pd.DataFrame(videos_data)
 
@@ -138,23 +142,37 @@ if st.button("Analyze Channel") and channel_url:
         st.write(f"Total Videos: {info['Total Videos']:,}")
         st.write(f"Created: {info['Created Date']}")
 
-        video_ids = [video['contentDetails']['videoId'] for video in youtube.playlistItems().list(part="contentDetails", playlistId=playlist_id, maxResults=50).execute()['items']]
+        video_ids = []
+        next_page_token = None
+        while True:
+            response = youtube.playlistItems().list(part="contentDetails", playlistId=playlist_id, maxResults=50, pageToken=next_page_token).execute()
+            video_ids.extend([item['contentDetails']['videoId'] for item in response['items']])
+            next_page_token = response.get('nextPageToken')
+            if not next_page_token:
+                break]
         videos = get_video_details(youtube, video_ids)
+        videos["Days Since Upload"] = (datetime.now() - pd.to_datetime(videos['Upload Date'])).dt.days
+        videos["Days Old"] = (datetime.now() - pd.to_datetime(videos['Upload Date'])).dt.days
+        videos["Month"] = pd.to_datetime(videos['Upload Date']).dt.to_period('M').astype(str)
 
         recent_24h = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(hours=24))]
         recent_3d = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=3))]
         recent_1w = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(weeks=1))]
         recent_1m = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=30))]
 
-        st.subheader("VPH based on Recency")
+        st.subheader("VPH & Engagement based on Recency")
         if not recent_24h.empty:
             st.metric("Avg VPH (Past 24h)", f"{recent_24h['Views Per Hour'].mean():.2f} views/hour")
+            st.metric("Engagement Rate (Past 24h)", f"{recent_24h['Engagement Rate (%)'].mean():.2f}%"):.2f} views/hour")
         if not recent_3d.empty:
             st.metric("Avg VPH (Past 3 days)", f"{recent_3d['Views Per Hour'].mean():.2f} views/hour")
+            st.metric("Engagement Rate (Past 3 days)", f"{recent_3d['Engagement Rate (%)'].mean():.2f}%"):.2f} views/hour")
         if not recent_1w.empty:
             st.metric("Avg VPH (Past week)", f"{recent_1w['Views Per Hour'].mean():.2f} views/hour")
+            st.metric("Engagement Rate (Past week)", f"{recent_1w['Engagement Rate (%)'].mean():.2f}%"):.2f} views/hour")
         if not recent_1m.empty:
             st.metric("Avg VPH (Past month)", f"{recent_1m['Views Per Hour'].mean():.2f} views/hour")
+            st.metric("Engagement Rate (Past month)", f"{recent_1m['Engagement Rate (%)'].mean():.2f}%"):.2f} views/hour")
 
         st.subheader("Video Performance Table")
         st.dataframe(videos, use_container_width=True)
