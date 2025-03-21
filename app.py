@@ -127,9 +127,10 @@ def get_video_details(youtube, video_ids):
     return pd.DataFrame(videos_data)
 
 st.title("📊 YouTube Channel Analyzer")
-api_key = st.text_input("Enter YouTube Data API Key", type="password")
+# api_key = st.secrets["youtube_api_key"]
+api_key = st.secrets["youtube_api_key"]
 channel_url = st.text_input("Enter YouTube Channel URL")
-if st.button("Analyze Channel"):
+if st.button("Analyze Channel") and channel_url:
     if api_key and channel_url:
         youtube = get_youtube_client(api_key)
         channel_id, identifier, pattern = extract_channel_id(channel_url)
@@ -155,4 +156,4 @@ if st.button("Analyze Channel"):
             st.metric("Avg Comments", f"{avg_metrics['Comments']:,}")
             st.dataframe(videos, use_container_width=True)
     else:
-        st.warning("Please enter API key and channel URL")
+        st.warning("Please enter the YouTube channel URL")
