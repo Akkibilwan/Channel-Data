@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import googleapiclient.discovery
 import io
 
@@ -349,37 +349,74 @@ def calculate_vph_metrics(df):
     
     return df
 
-# Function to calculate view ranges for different days
+# Function to calculate view ranges for different days (VidIQ style)
 def calculate_view_ranges(df, max_days=30):
     # Initialize ranges dataframe
     ranges_data = []
     
-    # Get videos that are at least max_days old
-    for day in range(1, max_days + 1):
-        # Filter videos that are at least 'day' days old
-        videos_for_day = df[df['days_since_upload'] >= day].copy()
+    # Get all videos with their real or estimated views per day
+    video_daily_views = []
+    
+    # For each video, estimate daily views
+    for _, video in df.iterrows():
+        total_views = video['views']
+        days_old = video['days_since_upload']
         
-        if not videos_for_day.empty:
-            # Get estimated views at that day point
-            videos_for_day['day_views'] = videos_for_day.apply(
-                lambda row: min(row['views'], row['views'] * day / max(day, row['days_since_upload'])),
-                axis=1
-            )
+        # Skip videos with 0 views
+        if total_views == 0:
+            continue
             
-            # Calculate percentiles
-            q25 = np.percentile(videos_for_day['day_views'], 25)
-            q50 = np.percentile(videos_for_day['day_views'], 50)
-            q75 = np.percentile(videos_for_day['day_views'], 75)
-            q90 = np.percentile(videos_for_day['day_views'], 90)
+        # Calculate daily view estimate for each day of the video's life
+        # (up to max_days or the video's actual age, whichever is less)
+        for day in range(1, min(max_days + 1, days_old + 1)):
+            # For videos older than max_days, we need to estimate what their views were at day X
+            # This uses a simple linear estimation based on total views and age
+            # More sophisticated models could be used here with historical data
+            
+            # Calculate estimated cumulative views at this day
+            if days_old > max_days:
+                # For older videos, estimate views at each day using a curve that 
+                # assumes faster growth at the beginning
+                # This is a better approximation than linear growth
+                day_fraction = day / days_old
+                view_fraction = day_fraction ** 0.85  # Slightly frontloaded curve
+                day_cumulative_views = int(total_views * view_fraction)
+            else:
+                # For newer videos, use actual cumulative views
+                day_cumulative_views = total_views
+                
+            video_daily_views.append({
+                'video_id': video['video_id'],
+                'day': day,
+                'cumulative_views': day_cumulative_views
+            })
+    
+    # Convert to DataFrame for easier analysis
+    daily_views_df = pd.DataFrame(video_daily_views)
+    
+    # Calculate ranges for each day
+    for day in range(1, max_days + 1):
+        day_data = daily_views_df[daily_views_df['day'] == day]
+        
+        if len(day_data) > 0:
+            # Get min, max, and percentiles for this day across all videos
+            min_views = day_data['cumulative_views'].min()
+            p10 = np.percentile(day_data['cumulative_views'], 10)
+            p25 = np.percentile(day_data['cumulative_views'], 25)
+            median = np.percentile(day_data['cumulative_views'], 50)
+            p75 = np.percentile(day_data['cumulative_views'], 75)
+            p90 = np.percentile(day_data['cumulative_views'], 90)
+            max_views = day_data['cumulative_views'].max()
             
             # Add to ranges data
             ranges_data.append({
                 'day': day,
-                'lower_range': int(q25),
-                'median': int(q50),
-                'upper_range': int(q75),
-                'max_range': int(q90),
-                'sample_size': len(videos_for_day)
+                'min_views': int(min_views),
+                'lower_range': int(p25),
+                'median': int(median),
+                'upper_range': int(p75),
+                'max_views': int(max_views),
+                'sample_size': len(day_data)
             })
     
     return pd.DataFrame(ranges_data)
@@ -391,6 +428,9 @@ def main():
     # Input for channel URL
     channel_url = st.text_input("Enter YouTube Channel URL:", 
                                placeholder="https://www.youtube.com/@ChannelName")
+    
+    # Number of days to analyze for view ranges
+    max_days = st.slider("Days to analyze for view ranges:", min_value=7, max_value=90, value=30)
     
     # Analyze button
     if st.button("Analyze Channel", type="primary"):
@@ -481,23 +521,28 @@ def main():
             
             # Display video data
             st.markdown("### Channel Videos")
+            
+            # Add a hyperlink to the video ID column
+            df['video_url'] = df['video_id'].apply(lambda x: f"https://www.youtube.com/watch?v={x}")
+            
             st.dataframe(
                 df,
                 column_config={
                     "video_id": "Video ID",
+                    "video_url": st.column_config.LinkColumn("Video Link"),
                     "title": "Title",
                     "upload_date": "Upload Date",
                     "duration_seconds": "Duration (sec)",
                     "duration": "Duration",
-                    "views": "Views",
-                    "views_per_hour": "Views Per Hour",
-                    "vph_24h": "VPH (24h)",
-                    "vph_3d": "VPH (3d)",
-                    "vph_1w": "VPH (1w)",
-                    "vph_1m": "VPH (1m)",
-                    "likes": "Likes",
-                    "comments": "Comments",
-                    "engagement_rate": "Engagement Rate (%)",
+                    "views": st.column_config.NumberColumn("Views", format="%d"),
+                    "views_per_hour": st.column_config.NumberColumn("Views Per Hour", format="%.2f"),
+                    "vph_24h": st.column_config.NumberColumn("VPH (24h)", format="%.2f"),
+                    "vph_3d": st.column_config.NumberColumn("VPH (3d)", format="%.2f"),
+                    "vph_1w": st.column_config.NumberColumn("VPH (1w)", format="%.2f"),
+                    "vph_1m": st.column_config.NumberColumn("VPH (1m)", format="%.2f"),
+                    "likes": st.column_config.NumberColumn("Likes", format="%d"),
+                    "comments": st.column_config.NumberColumn("Comments", format="%d"),
+                    "engagement_rate": st.column_config.NumberColumn("Engagement Rate (%)", format="%.2f"),
                     "description": st.column_config.TextColumn("Description", width="medium"),
                     "thumbnail_url": "Thumbnail URL",
                     "days_since_upload": "Days Since Upload",
@@ -511,21 +556,27 @@ def main():
             st.markdown("---")
             st.markdown('<h2 class="subheader">View Performance Ranges</h2>', unsafe_allow_html=True)
             
-            view_ranges_df = calculate_view_ranges(df)
+            view_ranges_df = calculate_view_ranges(df, max_days=max_days)
             
             # Display view ranges
-            st.markdown("### Video View Performance by Age")
-            st.write("This shows the typical view ranges for videos at different points in their lifecycle:")
+            st.markdown("### Video View Performance Ranges by Day")
+            st.write("This shows the typical cumulative view ranges for your videos at each day of their lifecycle:")
+            st.write("- **Min Views**: The lowest cumulative views any video had by this day")
+            st.write("- **Lower Range**: The 25th percentile (25% of videos had fewer views)")
+            st.write("- **Median**: The middle point (50th percentile)")
+            st.write("- **Upper Range**: The 75th percentile (25% of videos had more views)")
+            st.write("- **Max Views**: The highest cumulative views any video had by this day")
             
             # Display table
             st.dataframe(
                 view_ranges_df,
                 column_config={
                     "day": st.column_config.NumberColumn("Day", format="%d"),
+                    "min_views": st.column_config.NumberColumn("Min Views", format="%d"),
                     "lower_range": st.column_config.NumberColumn("Lower Range (25%)", format="%d"),
                     "median": st.column_config.NumberColumn("Median (50%)", format="%d"),
                     "upper_range": st.column_config.NumberColumn("Upper Range (75%)", format="%d"),
-                    "max_range": st.column_config.NumberColumn("Top Performers (90%)", format="%d"),
+                    "max_views": st.column_config.NumberColumn("Max Views", format="%d"),
                     "sample_size": "Sample Size"
                 },
                 hide_index=True
