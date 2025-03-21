@@ -280,12 +280,13 @@ def get_video_details(youtube, videos):
     
     return video_details
 
-# Function to calculate daily view ranges (VidIQ style)
-def calculate_daily_view_ranges(df, max_days=30):
-    # Create data structure to hold daily performance
-    daily_views = {day: [] for day in range(1, max_days + 1)}
+# Function to calculate daily view metrics (VidIQ style)
+def calculate_view_metrics(df, max_days=30):
+    # Initialize the data structures
+    daily_snapshot = {day: [] for day in range(1, max_days + 1)}
+    cumulative_totals = {day: [] for day in range(1, max_days + 1)}
     
-    # For each video, estimate its views at each day of its lifecycle
+    # Process each video
     for _, video in df.iterrows():
         total_views = video['views']
         days_old = video['days_since_upload']
@@ -294,47 +295,72 @@ def calculate_daily_view_ranges(df, max_days=30):
         if total_views == 0:
             continue
         
-        # For each day in the video's lifecycle (up to max_days)
-        for day in range(1, min(max_days + 1, days_old + 1)):
-            # For older videos, we need to estimate historical views
-            if days_old > max_days:
-                # Estimate using a curve that models typical YouTube view distribution
-                # Views tend to accumulate faster in earlier days
-                
-                # Calculate what fraction of total days this represents
-                day_fraction = day / days_old
-                
-                # Use a curve that gives more weight to early days
-                # Power values less than 1 create curves where growth is faster initially
-                view_fraction = day_fraction ** 0.7
-                
-                # Calculate estimated views at this day
-                day_views = int(total_views * view_fraction)
-            else:
-                # For newer videos, use actual total views for current age
-                day_views = total_views
+        # For older videos, estimate daily and cumulative views
+        if days_old > 0:
+            # Calculate assumed daily views
+            daily_views = []
+            cumulative = 0
             
-            # Add to our collection
-            daily_views[day].append(day_views)
+            # Use a model that assumes front-loaded views (typical for YouTube)
+            # Day 1 gets most views, gradually decreasing
+            total_time_weight = sum([1/(i**0.5) for i in range(1, days_old + 1)])
+            
+            for day in range(1, min(days_old + 1, max_days + 1)):
+                # Weight gives higher values to earlier days
+                day_weight = 1/(day**0.5)
+                
+                # Estimate daily views for this day
+                day_views = int(total_views * (day_weight / total_time_weight))
+                daily_views.append(day_views)
+                
+                # Add to cumulative
+                cumulative += day_views
+                
+                # Store in our data structures
+                daily_snapshot[day].append(day_views)
+                cumulative_totals[day].append(cumulative)
     
-    # Now calculate statistics for each day
+    # Calculate metrics for each day
     results = []
+    cumulative_lowest = 0
+    cumulative_highest = 0
+    
     for day in range(1, max_days + 1):
-        views = daily_views[day]
+        # Daily view snapshot
+        if daily_snapshot[day]:
+            daily_lowest = int(min(daily_snapshot[day]))
+            daily_highest = int(max(daily_snapshot[day]))
+        else:
+            daily_lowest = 0
+            daily_highest = 0
         
-        # Only include days with enough data
-        if len(views) >= 3:  # Require at least 3 videos for meaningful stats
-            results.append({
-                'day': day,
-                'min_views': int(min(views)),
-                'average_min': int(np.percentile(views, 10)),  # Bottom 10% average
-                'lower_range': int(np.percentile(views, 25)),
-                'median': int(np.percentile(views, 50)),
-                'upper_range': int(np.percentile(views, 75)),
-                'average_max': int(np.percentile(views, 90)),  # Top 10% average
-                'max_views': int(max(views)),
-                'sample_size': len(views)
-            })
+        # Cumulative view totals
+        if cumulative_totals[day]:
+            cumulative_min = int(min(cumulative_totals[day]))
+            cumulative_median = int(np.median(cumulative_totals[day]))
+            cumulative_max = int(max(cumulative_totals[day]))
+            
+            # Update running totals
+            cumulative_lowest += daily_lowest
+            cumulative_highest += daily_highest
+        else:
+            cumulative_min = 0
+            cumulative_median = 0
+            cumulative_max = 0
+        
+        # Store the results
+        results.append({
+            'day': day,
+            'dailyViewSnapshot_lowest': daily_lowest,
+            'dailyViewSnapshot_highest': daily_highest,
+            'cumulativeViewTotal_min': cumulative_min,
+            'cumulativeViewTotal_median': cumulative_median,
+            'cumulativeViewTotal_max': cumulative_max,
+            'cumulativeViewTotal_overall': cumulative_median,  # This matches VidIQ's overall metric
+            'cumulative_lowest': cumulative_lowest,
+            'cumulative_highest': cumulative_highest,
+            'sample_size': len(daily_snapshot[day])
+        })
     
     return pd.DataFrame(results)
 
@@ -448,31 +474,28 @@ def main():
                 }
             )
             
-            # Calculate view ranges
-            st.subheader("View Performance Ranges")
-            view_ranges = calculate_daily_view_ranges(video_df, max_days)
+            # Calculate view metrics
+            st.subheader("View Performance Metrics")
+            view_metrics = calculate_view_metrics(video_df, max_days)
             
-            # Display view ranges
-            st.write("This shows the cumulative view ranges for videos on each day after publishing:")
-            st.write("- **Min Views**: Absolute minimum views any video had by this day")
-            st.write("- **Average Min**: Average of bottom 10% performers (VidIQ's typical lower range)")
-            st.write("- **Lower Range**: 25th percentile of views")
-            st.write("- **Median**: 50th percentile (middle point)")
-            st.write("- **Upper Range**: 75th percentile of views")
-            st.write("- **Average Max**: Average of top 10% performers (VidIQ's typical upper range)")
-            st.write("- **Max Views**: Absolute maximum views any video had by this day")
+            # Display view metrics
+            st.write("This shows the view performance metrics for your channel:")
+            st.write("- **Daily View Snapshot (Lowest/Highest)**: The lowest and highest daily views for videos on each day")
+            st.write("- **Cumulative View Total**: The total views accumulated by day X of a video's life")
+            st.write("- **Cumulative Running Totals**: The running sum of daily lowest/highest views")
             
             st.dataframe(
-                view_ranges,
+                view_metrics,
                 column_config={
                     "day": "Day",
-                    "min_views": st.column_config.NumberColumn("Min Views", format="%d"),
-                    "average_min": st.column_config.NumberColumn("Average Min", format="%d"),
-                    "lower_range": st.column_config.NumberColumn("Lower Range (25%)", format="%d"),
-                    "median": st.column_config.NumberColumn("Median (50%)", format="%d"),
-                    "upper_range": st.column_config.NumberColumn("Upper Range (75%)", format="%d"),
-                    "average_max": st.column_config.NumberColumn("Average Max", format="%d"),
-                    "max_views": st.column_config.NumberColumn("Max Views", format="%d"),
+                    "dailyViewSnapshot_lowest": st.column_config.NumberColumn("Daily Lowest", format="%d"),
+                    "dailyViewSnapshot_highest": st.column_config.NumberColumn("Daily Highest", format="%d"),
+                    "cumulativeViewTotal_min": st.column_config.NumberColumn("Cumulative Min", format="%d"),
+                    "cumulativeViewTotal_median": st.column_config.NumberColumn("Cumulative Median", format="%d"),
+                    "cumulativeViewTotal_max": st.column_config.NumberColumn("Cumulative Max", format="%d"),
+                    "cumulativeViewTotal_overall": st.column_config.NumberColumn("Cumulative Overall", format="%d"),
+                    "cumulative_lowest": st.column_config.NumberColumn("Cumulative Running Lowest", format="%d"),
+                    "cumulative_highest": st.column_config.NumberColumn("Cumulative Running Highest", format="%d"),
                     "sample_size": "Sample Size"
                 }
             )
@@ -485,7 +508,7 @@ def main():
             
             with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                 video_df.to_excel(writer, sheet_name='Video Data', index=False)
-                view_ranges.to_excel(writer, sheet_name='View Ranges', index=False)
+                view_metrics.to_excel(writer, sheet_name='View Metrics', index=False)
             
             excel_buffer.seek(0)
             
