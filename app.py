@@ -149,7 +149,7 @@ if st.button("Analyze Channel") and channel_url:
             video_ids.extend([item['contentDetails']['videoId'] for item in response['items']])
             next_page_token = response.get('nextPageToken')
             if not next_page_token:
-                break]
+                break
         videos = get_video_details(youtube, video_ids)
         videos["Days Since Upload"] = (datetime.now() - pd.to_datetime(videos['Upload Date'])).dt.days
         videos["Days Old"] = (datetime.now() - pd.to_datetime(videos['Upload Date'])).dt.days
@@ -163,16 +163,16 @@ if st.button("Analyze Channel") and channel_url:
         st.subheader("VPH & Engagement based on Recency")
         if not recent_24h.empty:
             st.metric("Avg VPH (Past 24h)", f"{recent_24h['Views Per Hour'].mean():.2f} views/hour")
-            st.metric("Engagement Rate (Past 24h)", f"{recent_24h['Engagement Rate (%)'].mean():.2f}%"):.2f} views/hour")
+            st.metric("Engagement Rate (Past 24h)", f"{recent_24h['Engagement Rate (%)'].mean():.2f}%")
         if not recent_3d.empty:
             st.metric("Avg VPH (Past 3 days)", f"{recent_3d['Views Per Hour'].mean():.2f} views/hour")
-            st.metric("Engagement Rate (Past 3 days)", f"{recent_3d['Engagement Rate (%)'].mean():.2f}%"):.2f} views/hour")
+            st.metric("Engagement Rate (Past 3 days)", f"{recent_3d['Engagement Rate (%)'].mean():.2f}%")
         if not recent_1w.empty:
             st.metric("Avg VPH (Past week)", f"{recent_1w['Views Per Hour'].mean():.2f} views/hour")
-            st.metric("Engagement Rate (Past week)", f"{recent_1w['Engagement Rate (%)'].mean():.2f}%"):.2f} views/hour")
+            st.metric("Engagement Rate (Past week)", f"{recent_1w['Engagement Rate (%)'].mean():.2f}%")
         if not recent_1m.empty:
             st.metric("Avg VPH (Past month)", f"{recent_1m['Views Per Hour'].mean():.2f} views/hour")
-            st.metric("Engagement Rate (Past month)", f"{recent_1m['Engagement Rate (%)'].mean():.2f}%"):.2f} views/hour")
+            st.metric("Engagement Rate (Past month)", f"{recent_1m['Engagement Rate (%)'].mean():.2f}%")
 
         st.subheader("Video Performance Table")
         st.dataframe(videos, use_container_width=True)
