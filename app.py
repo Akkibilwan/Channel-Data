@@ -1,8 +1,145 @@
-import streamlit as st
+# Tab 5: Views Per Hour Analysis
+                with tab5:
+                    st.header("Views Per Hour Analysis")
+                    
+                    # Create tabs for different VPH metrics
+                    vph_tabs = st.tabs(["VPH (24h)", "VPH (3d)", "VPH (7d)", "VPH (Lifetime)"])
+                    
+                    with vph_tabs[0]:  # 24h VPH
+                        st.subheader("Top 20 Videos by 24h Views Per Hour")
+                        vph_24h_df = videos_df.sort_values("Views Per Hour (24h)", ascending=False).head(20)
+                        vph_24h_display = vph_24h_df[["Title", "Upload Date", "Views", "Views Per Hour (24h)", "Duration"]].copy()
+                        vph_24h_display["Views"] = vph_24h_display["Views"].apply(lambda x: f"{x:,}")
+                        vph_24h_display["Views Per Hour (24h)"] = vph_24h_display["Views Per Hour (24h)"].apply(lambda x: f"{x:.1f}")
+                        st.dataframe(vph_24h_display, use_container_width=True)
+                        
+                        # 24h VPH by video age
+                        st.subheader("24h Views Per Hour by Video Age")
+                        fig_24h = px.scatter(
+                            videos_df, 
+                            x="Age (days)", 
+                            y="Views Per Hour (24h)",
+                            hover_name="Title",
+                            labels={"Age (days)": "Video Age (days)", "Views Per Hour (24h)": "Views Per Hour (24h)"},
+                            title="Recent Performance: 24h Views Per Hour vs Video Age",
+                            color="Views Per Hour (24h)",
+                            color_continuous_scale="Viridis",
+                            size="Views",
+                            size_max=50
+                        )
+                        st.plotly_chart(fig_24h, use_container_width=True)
+                    
+                    with vph_tabs[1]:  # 3d VPH
+                        st.subheader("Top 20 Videos by 3-Day Views Per Hour")
+                        vph_3d_df = videos_df.sort_values("Views Per Hour (3d)", ascending=False).head(20)
+                        vph_3d_display = vph_3d_df[["Title", "Upload Date", "Views", "Views Per Hour (3d)", "Duration"]].copy()
+                        vph_3d_display["Views"] = vph_3d_display["Views"].apply(lambda x: f"{x:,}")
+                        vph_3d_display["Views Per Hour (3d)"] = vph_3d_display["Views Per Hour (3d)"].apply(lambda x: f"{x:.1f}")
+                        st.dataframe(vph_3d_display, use_container_width=True)
+                        
+                        # 3d VPH by video age
+                        st.subheader("3-Day Views Per Hour by Video Age")
+                        fig_3d = px.scatter(
+                            videos_df, 
+                            x="Age (days)", 
+                            y="Views Per Hour (3d)",
+                            hover_name="Title",
+                            labels={"Age (days)": "Video Age (days)", "Views Per Hour (3d)": "Views Per Hour (3d)"},
+                            title="Recent Performance: 3-Day Views Per Hour vs Video Age",
+                            color="Views Per Hour (3d)",
+                            color_continuous_scale="Viridis",
+                            size="Views",
+                            size_max=50
+                        )
+                        st.plotly_chart(fig_3d, use_container_width=True)
+                    
+                    with vph_tabs[2]:  # 7d VPH
+                        st.subheader("Top 20 Videos by 7-Day Views Per Hour")
+                        vph_7d_df = videos_df.sort_values("Views Per Hour (7d)", ascending=False).head(20)
+                        vph_7d_display = vph_7d_df[["Title", "Upload Date", "Views", "Views Per Hour (7d)", "Duration"]].copy()
+                        vph_7d_display["Views"] = vph_7d_display["Views"].apply(lambda x: f"{x:,}")
+                        vph_7d_display["Views Per Hour (7d)"] = vph_7d_display["Views Per Hour (7d)"].apply(lambda x: f"{x:.1f}")
+                        st.dataframe(vph_7d_display, use_container_width=True)
+                        
+                        # 7d VPH by video age
+                        st.subheader("7-Day Views Per Hour by Video Age")
+                        fig_7d = px.scatter(
+                            videos_df, 
+                            x="Age (days)", 
+                            y="Views Per Hour (7d)",
+                            hover_name="Title",
+                            labels={"Age (days)": "Video Age (days)", "Views Per Hour (7d)": "Views Per Hour (7d)"},
+                            title="Recent Performance: 7-Day Views Per Hour vs Video Age",
+                            color="Views Per Hour (7d)",
+                            color_continuous_scale="Viridis",
+                            size="Views",
+                            size_max=50
+                        )
+                        st.plotly_chart(fig_7d, use_container_width=True)
+                    
+                    with vph_tabs[3]:  # Lifetime VPH
+                        st.subheader("Top 20 Videos by Lifetime Views Per Hour")
+                        vph_lifetime_df = videos_df.sort_values("Views Per Hour (Lifetime)", ascending=False).head(20)
+                        vph_lifetime_display = vph_lifetime_df[["Title", "Upload Date", "Views", "Views Per Hour (Lifetime)", "Duration"]].copy()
+                        vph_lifetime_display["Views"] = vph_lifetime_display["Views"].apply(lambda x: f"{x:,}")
+                        vph_lifetime_display["Views Per Hour (Lifetime)"] = vph_lifetime_display["Views Per Hour (Lifetime)"].apply(lambda x: f"{x:.1f}")
+                        st.dataframe(vph_lifetime_display, use_container_width=True)
+                        
+                        # Lifetime VPH by video age
+                        st.subheader("Lifetime Views Per Hour by Video Age")
+                        fig_lifetime = px.scatter(
+                            videos_df, 
+                            x="Age (days)", 
+                            y="Views Per Hour (Lifetime)",
+                            hover_name="Title",
+                            labels={"Age (days)": "Video Age (days)", "Views Per Hour (Lifetime)": "Views Per Hour (Lifetime)"},
+                            title="Overall Performance: Lifetime Views Per Hour vs Video Age",
+                            color="Views Per Hour (Lifetime)",
+                            color_continuous_scale="Viridis",
+                            size="Views",
+                            size_max=50
+                        )
+                        st.plotly_chart(fig_lifetime, use_container_width=True)
+                    
+            # This is a clean fix for the VPH comparison chart code
+            # VPH comparison across time periods
+            st.subheader("VPH Comparison Across Time Periods")
+            
+            # Create a dataframe for VPH comparison
+            vph_comparison = videos_df.sort_values("Views", ascending=False).head(15)
+            vph_comparison = vph_comparison[["Title", "Views Per Hour (24h)", "Views Per Hour (3d)", 
+                                             "Views Per Hour (7d)", "Views Per Hour (Lifetime)"]]
+            
+            # Create a bar chart to compare VPH across time periods
+            vph_comparison_melted = pd.melt(
+                vph_comparison.reset_index(),
+                id_vars=["index", "Title"],
+                value_vars=["Views Per Hour (24h)", "Views Per Hour (3d)", 
+                           "Views Per Hour (7d)", "Views Per Hour (Lifetime)"],
+                var_name="Time Period",
+                value_name="Views Per Hour"
+            )
+            
+            # Shorten title names for better display
+            vph_comparison_melted["Short Title"] = vph_comparison_melted["Title"].apply(
+                lambda x: x[:20] + "..." if len(x) > 20 else x
+            )
+            
+            fig_comparison = px.bar(
+                vph_comparison_melted,
+                x="Short Title",
+                y="Views Per Hour",
+                color="Time Period",
+                barmode="group",
+                title="VPH Comparison for Top 15 Videos by Views"
+            )
+            
+            st.plotly_chart(fig_comparison, use_container_width=True)import streamlit as st
 import pandas as pd
 import numpy as np
 import re
 import os
+import random
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 import time
@@ -568,20 +705,19 @@ def main():
                         st.metric("Total Views", f"{metrics['Total Views']:,}")
                         st.metric("Average Views", f"{metrics['Average Views']:,.1f}")
                         st.metric("Median Views", f"{metrics['Median Views']:,.1f}")
-                        st.metric("Average Views Per Hour", f"{metrics['Average Views Per Hour']:,.1f}")
                     
                     with col2:
-                        st.metric("Average Likes", f"{metrics['Average Likes']:,.1f}")
-                        st.metric("Average Comments", f"{metrics['Average Comments']:,.1f}")
-                        st.metric("Like-to-View Ratio", f"{metrics['Like-to-View Ratio (%)']:.2f}%")
-                        st.metric("Average Engagement Rate", f"{metrics['Average Engagement Rate (%)']:.2f}%")
+                        st.metric("VPH (Lifetime)", f"{metrics['Average Views Per Hour (Lifetime)']:,.1f}")
+                        st.metric("VPH (24h)", f"{metrics['Average Views Per Hour (24h)']:,.1f}")
+                        st.metric("VPH (3d)", f"{metrics['Average Views Per Hour (3d)']:,.1f}")
+                        st.metric("VPH (7d)", f"{metrics['Average Views Per Hour (7d)']:,.1f}")
                     
                     with col3:
-                        st.metric("Average Duration", metrics['Average Duration'])
+                        st.metric("Avg Engagement", f"{metrics['Average Engagement Rate (%)']:.2f}%")
+                        st.metric("Avg Duration", metrics['Average Duration'])
                         if "Upload Frequency (days)" in metrics:
                             st.metric("Upload Frequency", f"{metrics['Upload Frequency (days)']} days")
-                        st.metric("Most Viewed Video", metrics['Most Viewed Video'][:20] + "...")
-                        st.write(f"[View on YouTube]({metrics['Most Viewed Video URL']})")
+                        st.metric("Top Video (24h VPH)", metrics['Highest VPH Video (24h)'][:20] + "...")
                     
                     # Time-based performance
                     st.subheader("Performance by Time Period")
@@ -602,11 +738,17 @@ def main():
                     st.header("All Videos")
                     
                     # Create a display version of the dataframe with only key columns
-                    display_df = videos_df[["Title", "Upload Date", "Duration", "Views", "Views Per Hour", "Engagement Rate (%)", "Likes", "Comments"]].copy()
+                    display_df = videos_df[["Title", "Upload Date", "Duration", "Views", 
+                                           "Views Per Hour (Lifetime)", "Views Per Hour (24h)",
+                                           "Views Per Hour (3d)", "Views Per Hour (7d)",
+                                           "Engagement Rate (%)", "Likes", "Comments"]].copy()
                     
                     # Format numbers
                     display_df["Views"] = display_df["Views"].apply(lambda x: f"{x:,}")
-                    display_df["Views Per Hour"] = display_df["Views Per Hour"].apply(lambda x: f"{x:,.1f}")
+                    display_df["Views Per Hour (Lifetime)"] = display_df["Views Per Hour (Lifetime)"].apply(lambda x: f"{x:,.1f}")
+                    display_df["Views Per Hour (24h)"] = display_df["Views Per Hour (24h)"].apply(lambda x: f"{x:,.1f}")
+                    display_df["Views Per Hour (3d)"] = display_df["Views Per Hour (3d)"].apply(lambda x: f"{x:,.1f}")
+                    display_df["Views Per Hour (7d)"] = display_df["Views Per Hour (7d)"].apply(lambda x: f"{x:,.1f}")
                     display_df["Engagement Rate (%)"] = display_df["Engagement Rate (%)"].apply(lambda x: f"{x:.2f}%")
                     display_df["Likes"] = display_df["Likes"].apply(lambda x: f"{x:,}")
                     display_df["Comments"] = display_df["Comments"].apply(lambda x: f"{x:,}")
