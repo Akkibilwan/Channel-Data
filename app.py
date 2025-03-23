@@ -214,8 +214,13 @@ def get_video_details(youtube, videos):
                     duration_str = item['contentDetails'].get('duration', 'PT0S')
                     duration_seconds = parse_duration(duration_str)
                     
-                    # Determine if it's a short
-                    is_short = duration_seconds <= 120
+                    # Determine if it's a short, based on the modified condition
+                    is_short = False
+                    if '#shorts' in item['snippet'].get('title', '').lower() or \
+                       '#shorts' in item['snippet'].get('description', '').lower() or \
+                       'shorts' in item['snippet'].get('tags', []) or \
+                       duration_seconds <= 60:  # Most shorts are 60 seconds or less
+                        is_short = True
                     
                     # Statistics
                     stats = item.get('statistics', {})
@@ -286,12 +291,12 @@ def get_video_details(youtube, videos):
     return video_details
 
 # Function to calculate daily view metrics (VidIQ style) with video type filtering
-def calculate_view_metrics(df, max_days=30, video_type='all'):
+def calculate_view_metrics(df, max_days=None, video_type='all'):
     # Filter videos based on type
     if video_type == 'long_form':
-        filtered_df = df[df['duration_seconds'] > 120].copy()
+        filtered_df = df[~df['is_short']].copy()
     elif video_type == 'shorts':
-        filtered_df = df[df['duration_seconds'] <= 120].copy()
+        filtered_df = df[df['is_short']].copy()
     else:  # 'all'
         filtered_df = df.copy()
     
@@ -301,6 +306,10 @@ def calculate_view_metrics(df, max_days=30, video_type='all'):
                                     'cumulativeViewTotal_min', 'cumulativeViewTotal_median',
                                     'cumulativeViewTotal_max', 'cumulativeViewTotal_overall',
                                     'cumulative_lowest', 'cumulative_highest', 'sample_size'])
+    
+    # If max_days is None or 0, set it to the age of the oldest video
+    if not max_days:
+        max_days = int(filtered_df['days_since_upload'].max()) + 1
     
     # Initialize the data structures
     daily_snapshot = {day: [] for day in range(1, max_days + 1)}
@@ -392,8 +401,35 @@ def main():
     channel_url = st.text_input("Enter YouTube Channel URL:", 
                               placeholder="https://www.youtube.com/@ChannelName")
     
-    # Days to analyze
-    max_days = st.slider("Days to analyze:", min_value=7, max_value=90, value=30)
+    # Create columns for options
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Days to analyze (making it optional)
+        use_max_days = st.checkbox("Limit analysis to specific number of days", value=False)
+        max_days = None
+        if use_max_days:
+            max_days = st.slider("Days to analyze:", min_value=7, max_value=365, value=30)
+    
+    with col2:
+        # Video type filter
+        video_type_filter = st.selectbox(
+            "Video type to analyze:",
+            options=[
+                "All Videos", 
+                "Long-form Videos", 
+                "Shorts"
+            ],
+            index=0
+        )
+        
+        # Map selection to filter values
+        video_type_map = {
+            "All Videos": "all",
+            "Long-form Videos": "long_form",
+            "Shorts": "shorts"
+        }
+        video_type = video_type_map[video_type_filter]
     
     # Analyze button
     if st.button("Analyze Channel", type="primary"):
@@ -468,19 +504,37 @@ def main():
             # Display videos
             st.subheader("Channel Videos")
             
+            # Add filter interface
+            video_filter_type = st.radio(
+                "Filter videos:", 
+                ["All Videos", "Long-form Videos", "Shorts"],
+                horizontal=True
+            )
+            
             # Add video URL
             video_df['video_url'] = video_df['video_id'].apply(lambda x: f"https://www.youtube.com/watch?v={x}")
             
+            # Filter dataframe based on selection
+            if video_filter_type == "Long-form Videos":
+                filtered_df = video_df[~video_df['is_short']]
+            elif video_filter_type == "Shorts":
+                filtered_df = video_df[video_df['is_short']]
+            else:
+                filtered_df = video_df
+            
             # Count video types
             total_videos = len(video_df)
-            long_form_count = len(video_df[video_df['is_short'] == False])
-            shorts_count = len(video_df[video_df['is_short'] == True])
+            long_form_count = len(video_df[~video_df['is_short']])
+            shorts_count = len(video_df[video_df['is_short']])
             
-            st.write(f"Total Videos: {total_videos} | Long-form Videos (>120s): {long_form_count} | Shorts (≤120s): {shorts_count}")
+            st.write(f"Total Videos: {total_videos} | Long-form Videos: {long_form_count} | Shorts: {shorts_count}")
+            
+            # Show current filter counts
+            st.write(f"Currently showing: {len(filtered_df)} videos")
             
             # Display dataframe
             st.dataframe(
-                video_df,
+                filtered_df,
                 column_config={
                     "video_id": "Video ID",
                     "video_url": st.column_config.LinkColumn("Video Link"),
@@ -505,30 +559,62 @@ def main():
             )
             
             # Calculate view metrics
-            st.subheader("View Performance Metrics")
-            view_metrics = calculate_view_metrics(video_df, max_days)
+            st.subheader(f"View Performance Metrics ({video_type_filter})")
             
-            # Display view metrics
-            st.write("This shows the view performance metrics for your channel:")
-            st.write("- **Daily View Snapshot (Lowest/Highest)**: The lowest and highest daily views for videos on each day")
-            st.write("- **Cumulative View Total**: The total views accumulated by day X of a video's life")
-            st.write("- **Cumulative Running Totals**: The running sum of daily lowest/highest views")
+            # Calculate metrics based on selected filter
+            view_metrics = calculate_view_metrics(video_df, max_days, video_type)
             
-            st.dataframe(
-                view_metrics,
-                column_config={
-                    "day": "Day",
-                    "dailyViewSnapshot_lowest": st.column_config.NumberColumn("Daily Lowest", format="%d"),
-                    "dailyViewSnapshot_highest": st.column_config.NumberColumn("Daily Highest", format="%d"),
-                    "cumulativeViewTotal_min": st.column_config.NumberColumn("Cumulative Min", format="%d"),
-                    "cumulativeViewTotal_median": st.column_config.NumberColumn("Cumulative Median", format="%d"),
-                    "cumulativeViewTotal_max": st.column_config.NumberColumn("Cumulative Max", format="%d"),
-                    "cumulativeViewTotal_overall": st.column_config.NumberColumn("Cumulative Overall", format="%d"),
-                    "cumulative_lowest": st.column_config.NumberColumn("Cumulative Running Lowest", format="%d"),
-                    "cumulative_highest": st.column_config.NumberColumn("Cumulative Running Highest", format="%d"),
-                    "sample_size": "Sample Size"
-                }
-            )
+            # Display view metrics with pagination if needed
+            if len(view_metrics) > 30:
+                st.write("Showing lifetime metrics (scroll to see more):")
+                st.write("- **Daily View Snapshot (Lowest/Highest)**: The lowest and highest daily views for videos on each day")
+                st.write("- **Cumulative View Total**: The total views accumulated by day X of a video's life")
+                st.write("- **Cumulative Running Totals**: The running sum of daily lowest/highest views")
+                
+                # Paginate the metrics
+                metrics_per_page = 30
+                total_pages = (len(view_metrics) + metrics_per_page - 1) // metrics_per_page
+                
+                page = st.slider("Page", 1, total_pages, 1)
+                start_idx = (page - 1) * metrics_per_page
+                end_idx = min(start_idx + metrics_per_page, len(view_metrics))
+                
+                st.dataframe(
+                    view_metrics.iloc[start_idx:end_idx],
+                    column_config={
+                        "day": "Day",
+                        "dailyViewSnapshot_lowest": st.column_config.NumberColumn("Daily Lowest", format="%d"),
+                        "dailyViewSnapshot_highest": st.column_config.NumberColumn("Daily Highest", format="%d"),
+                        "cumulativeViewTotal_min": st.column_config.NumberColumn("Cumulative Min", format="%d"),
+                        "cumulativeViewTotal_median": st.column_config.NumberColumn("Cumulative Median", format="%d"),
+                        "cumulativeViewTotal_max": st.column_config.NumberColumn("Cumulative Max", format="%d"),
+                        "cumulativeViewTotal_overall": st.column_config.NumberColumn("Cumulative Overall", format="%d"),
+                        "cumulative_lowest": st.column_config.NumberColumn("Cumulative Running Lowest", format="%d"),
+                        "cumulative_highest": st.column_config.NumberColumn("Cumulative Running Highest", format="%d"),
+                        "sample_size": "Sample Size"
+                    }
+                )
+            else:
+                st.write("View performance metrics:")
+                st.write("- **Daily View Snapshot (Lowest/Highest)**: The lowest and highest daily views for videos on each day")
+                st.write("- **Cumulative View Total**: The total views accumulated by day X of a video's life")
+                st.write("- **Cumulative Running Totals**: The running sum of daily lowest/highest views")
+                
+                st.dataframe(
+                    view_metrics,
+                    column_config={
+                        "day": "Day",
+                        "dailyViewSnapshot_lowest": st.column_config.NumberColumn("Daily Lowest", format="%d"),
+                        "dailyViewSnapshot_highest": st.column_config.NumberColumn("Daily Highest", format="%d"),
+                        "cumulativeViewTotal_min": st.column_config.NumberColumn("Cumulative Min", format="%d"),
+                        "cumulativeViewTotal_median": st.column_config.NumberColumn("Cumulative Median", format="%d"),
+                        "cumulativeViewTotal_max": st.column_config.NumberColumn("Cumulative Max", format="%d"),
+                        "cumulativeViewTotal_overall": st.column_config.NumberColumn("Cumulative Overall", format="%d"),
+                        "cumulative_lowest": st.column_config.NumberColumn("Cumulative Running Lowest", format="%d"),
+                        "cumulative_highest": st.column_config.NumberColumn("Cumulative Running Highest", format="%d"),
+                        "sample_size": "Sample Size"
+                    }
+                )
             
             # Create Excel download
             st.subheader("Download Data")
@@ -541,31 +627,69 @@ def main():
                 video_df.to_excel(writer, sheet_name='All Videos', index=False)
                 
                 # Add filtered video data
-                long_form_df = video_df[video_df['is_short'] == False].copy()
+                long_form_df = video_df[~video_df['is_short']].copy()
                 if not long_form_df.empty:
                     long_form_df.to_excel(writer, sheet_name='Long-form Videos', index=False)
                 
-                shorts_df = video_df[video_df['is_short'] == True].copy()
+                shorts_df = video_df[video_df['is_short']].copy()
                 if not shorts_df.empty:
                     shorts_df.to_excel(writer, sheet_name='Shorts', index=False)
                 
-                # Add metrics for all video types
+                # Add metrics for selected video type
                 view_metrics.to_excel(writer, sheet_name=f'Metrics - {video_type_filter}', index=False)
                 
-                # Add metrics for other types if not already selected
-                if video_type != 'all':
-                    all_metrics = calculate_view_metrics(video_df, max_days, 'all')
-                    all_metrics.to_excel(writer, sheet_name='Metrics - All Videos', index=False)
-                    
-                if video_type != 'long_form':
-                    long_form_metrics = calculate_view_metrics(video_df, max_days, 'long_form')
-                    if not long_form_metrics.empty:
-                        long_form_metrics.to_excel(writer, sheet_name='Metrics - Long-form', index=False)
+                # Add metrics for all video types
+                all_metrics = calculate_view_metrics(video_df, max_days, 'all')
+                all_metrics.to_excel(writer, sheet_name='Metrics - All Videos', index=False)
                 
-                if video_type != 'shorts':
-                    shorts_metrics = calculate_view_metrics(video_df, max_days, 'shorts')
-                    if not shorts_metrics.empty:
-                        shorts_metrics.to_excel(writer, sheet_name='Metrics - Shorts', index=False)
+                long_form_metrics = calculate_view_metrics(video_df, max_days, 'long_form')
+                if not long_form_metrics.empty:
+                    long_form_metrics.to_excel(writer, sheet_name='Metrics - Long-form', index=False)
+                
+                shorts_metrics = calculate_view_metrics(video_df, max_days, 'shorts')
+                if not shorts_metrics.empty:
+                    shorts_metrics.to_excel(writer, sheet_name='Metrics - Shorts', index=False)
+                
+                # Add summary statistics sheet
+                summary_data = {
+                    'Metric': [
+                        'Total Videos',
+                        'Long-form Videos',
+                        'Shorts',
+                        'Total Views',
+                        'Long-form Views',
+                        'Shorts Views',
+                        'Average Views (All)',
+                        'Average Views (Long-form)',
+                        'Average Views (Shorts)',
+                        'Average Engagement Rate (All)',
+                        'Average Engagement Rate (Long-form)',
+                        'Average Engagement Rate (Shorts)',
+                        'Total Watch Time (hours)',
+                        'Average Duration (All)',
+                        'Average Duration (Long-form)',
+                        'Average Duration (Shorts)'
+                    ],
+                    'Value': [
+                        len(video_df),
+                        len(long_form_df),
+                        len(shorts_df),
+                        video_df['views'].sum(),
+                        long_form_df['views'].sum() if not long_form_df.empty else 0,
+                        shorts_df['views'].sum() if not shorts_df.empty else 0,
+                        round(video_df['views'].mean(), 2),
+                        round(long_form_df['views'].mean(), 2) if not long_form_df.empty else 0,
+                        round(shorts_df['views'].mean(), 2) if not shorts_df.empty else 0,
+                        round(video_df['engagement_rate'].mean(), 2),
+                        round(long_form_df['engagement_rate'].mean(), 2) if not long_form_df.empty else 0,
+                        round(shorts_df['engagement_rate'].mean(), 2) if not shorts_df.empty else 0,
+                        round((video_df['duration_seconds'].sum() / 3600), 2),
+                        format_duration(int(video_df['duration_seconds'].mean())),
+                        format_duration(int(long_form_df['duration_seconds'].mean())) if not long_form_df.empty else '00:00',
+                        format_duration(int(shorts_df['duration_seconds'].mean())) if not shorts_df.empty else '00:00'
+                    ]
+                }
+                pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary Statistics', index=False)
             
             excel_buffer.seek(0)
             
@@ -576,6 +700,3 @@ def main():
                 file_name=f"{channel_data['snippet'].get('title', 'channel')}_youtube_analysis.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
-if __name__ == "__main__":
-    main()
