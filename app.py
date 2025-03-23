@@ -7,10 +7,8 @@ from datetime import datetime
 import googleapiclient.discovery
 import io
 
-# Streamlit page config
 st.set_page_config(page_title="YouTube Channel Analyzer", page_icon="📊", layout="wide")
 
-# Custom CSS
 st.markdown("""
 <style>
     .header {
@@ -22,8 +20,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-# Helper functions
 
 def parse_duration(duration):
     hours = minutes = seconds = 0
@@ -61,17 +57,44 @@ def get_youtube_api():
     return googleapiclient.discovery.build("youtube", "v3", developerKey=api_key)
 
 def get_channel_data(youtube, identifier):
-    methods = [
-        {'method': youtube.channels().list, 'kwargs': {'part': 'snippet,statistics,contentDetails', 'id': identifier}},
-        {'method': youtube.channels().list, 'kwargs': {'part': 'snippet,statistics,contentDetails', 'forUsername': identifier.lstrip('@')}}
-    ]
-    for m in methods:
-        try:
-            response = m['method'](**m['kwargs']).execute()
+    try:
+        response = youtube.channels().list(
+            part="snippet,statistics,contentDetails",
+            id=identifier
+        ).execute()
+        if response.get('items'):
+            return response['items'][0]
+    except:
+        pass
+
+    try:
+        response = youtube.channels().list(
+            part="snippet,statistics,contentDetails",
+            forUsername=identifier.lstrip('@')
+        ).execute()
+        if response.get('items'):
+            return response['items'][0]
+    except:
+        pass
+
+    try:
+        search_response = youtube.search().list(
+            part="snippet",
+            q=identifier.lstrip('@'),
+            type="channel",
+            maxResults=1
+        ).execute()
+        if search_response.get('items'):
+            channel_id = search_response['items'][0]['id']['channelId']
+            response = youtube.channels().list(
+                part="snippet,statistics,contentDetails",
+                id=channel_id
+            ).execute()
             if response.get('items'):
                 return response['items'][0]
-        except Exception as e:
-            st.write(f"Error: {str(e)}")
+    except:
+        pass
+
     return None
 
 def get_videos(youtube, playlist_id):
@@ -151,7 +174,6 @@ def main():
             st.subheader(f"Videos ({filter_type})")
             st.dataframe(df[['title', 'duration', 'views', 'likes', 'comments', 'engagement_rate', 'video_type', 'video_url']])
 
-            # Download report
             excel_buffer = io.BytesIO()
             with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                 df.to_excel(writer, sheet_name='Video Data', index=False)
