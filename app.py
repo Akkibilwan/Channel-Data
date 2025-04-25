@@ -65,10 +65,10 @@ def resolve_channel_id(youtube, identifier, pattern_type):
 
 # Fetch channel info
 def get_channel_info(youtube, channel_id):
-    response = youtube.channels().list(part="snippet,statistics,contentDetails", id=channel_id).execute()
+    response = youtube.channels().list(part="snippet,statistics,contentDetails,topicDetails", id=channel_id).execute()
     if not response.get("items"):
         st.error("Channel not found.")
-        return None, None
+        return None, None, None
     channel = response["items"][0]
     uploads_playlist_id = channel["contentDetails"]["relatedPlaylists"]["uploads"]
     publishedAt = channel["snippet"]["publishedAt"]
@@ -76,15 +76,19 @@ def get_channel_info(youtube, channel_id):
         created_date = datetime.strptime(publishedAt, "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d")
     except:
         created_date = "Unknown"
+    topic_categories = channel.get("topicDetails", {}).get("topicCategories", [])
+    category_names = [url.split('/')[-1].replace('_', ' ') for url in topic_categories]
+
     info = {
         "Channel Name": channel["snippet"]["title"],
         "Subscribers": int(channel["statistics"].get("subscriberCount", 0)),
         "Total Views": int(channel["statistics"].get("viewCount", 0)),
         "Total Videos": int(channel["statistics"].get("videoCount", 0)),
         "Created Date": created_date,
-        "Thumbnail URL": channel["snippet"]["thumbnails"]["high"]["url"]
+        "Thumbnail URL": channel["snippet"]["thumbnails"]["high"]["url"],
+        "Category": ", ".join(category_names) if category_names else "Not Available"
     }
-    return info, uploads_playlist_id
+    return info, uploads_playlist_id, category_names
 
 # Fetch videos
 def get_video_details(youtube, video_ids):
@@ -134,48 +138,59 @@ if st.button("Analyze Channel") and channel_url:
     if not channel_id and identifier:
         channel_id = resolve_channel_id(youtube, identifier, pattern)
     if channel_id:
-        info, playlist_id = get_channel_info(youtube, channel_id)
-        st.image(info["Thumbnail URL"], width=200)
-        st.subheader(info["Channel Name"])
-        st.write(f"Subscribers: {info['Subscribers']:,}")
-        st.write(f"Total Views: {info['Total Views']:,}")
-        st.write(f"Total Videos: {info['Total Videos']:,}")
-        st.write(f"Created: {info['Created Date']}")
+        info, playlist_id, categories = get_channel_info(youtube, channel_id)
+        if info:
+            st.image(info["Thumbnail URL"], width=200)
+            st.subheader(info["Channel Name"])
+            st.write(f"Category: {info['Category']}")
+            st.write(f"Subscribers: {info['Subscribers']:,}")
+            st.write(f"Total Views: {info['Total Views']:,}")
+            st.write(f"Total Videos: {info['Total Videos']:,}")
+            st.write(f"Created: {info['Created Date']}")
 
-        video_ids = []
-        next_page_token = None
-        while True:
-            response = youtube.playlistItems().list(part="contentDetails", playlistId=playlist_id, maxResults=50, pageToken=next_page_token).execute()
-            video_ids.extend([item['contentDetails']['videoId'] for item in response['items']])
-            next_page_token = response.get('nextPageToken')
-            if not next_page_token:
-                break
-        videos = get_video_details(youtube, video_ids)
-        videos["Days Since Upload"] = (datetime.now() - pd.to_datetime(videos['Upload Date'])).dt.days
-        videos["Days Old"] = (datetime.now() - pd.to_datetime(videos['Upload Date'])).dt.days
-        videos["Month"] = pd.to_datetime(videos['Upload Date']).dt.to_period('M').astype(str)
+            video_ids = []
+            next_page_token = None
+            while True:
+                response = youtube.playlistItems().list(part="contentDetails", playlistId=playlist_id, maxResults=50, pageToken=next_page_token).execute()
+                video_ids.extend([item['contentDetails']['videoId'] for item in response['items']])
+                next_page_token = response.get('nextPageToken')
+                if not next_page_token:
+                    break
+            videos = get_video_details(youtube, video_ids)
+            if not videos.empty:
+                videos["Days Since Upload"] = (datetime.now() - pd.to_datetime(videos['Upload Date'])).dt.days
+                videos["Days Old"] = (datetime.now() - pd.to_datetime(videos['Upload Date'])).dt.days
+                videos["Month"] = pd.to_datetime(videos['Upload Date']).dt.to_period('M').astype(str)
 
-        recent_24h = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(hours=24))]
-        recent_3d = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=3))]
-        recent_1w = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(weeks=1))]
-        recent_1m = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=30))]
+                recent_24h = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(hours=24))]
+                recent_3d = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=3))]
+                recent_1w = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(weeks=1))]
+                recent_1m = videos[pd.to_datetime(videos['Upload Date']) >= (datetime.now() - timedelta(days=30))]
 
-        st.subheader("VPH & Engagement based on Recency")
-        if not recent_24h.empty:
-            st.metric("Avg VPH (Past 24h)", f"{recent_24h['Views Per Hour'].mean():.2f} views/hour")
-            st.metric("Engagement Rate (Past 24h)", f"{recent_24h['Engagement Rate (%)'].mean():.2f}%")
-        if not recent_3d.empty:
-            st.metric("Avg VPH (Past 3 days)", f"{recent_3d['Views Per Hour'].mean():.2f} views/hour")
-            st.metric("Engagement Rate (Past 3 days)", f"{recent_3d['Engagement Rate (%)'].mean():.2f}%")
-        if not recent_1w.empty:
-            st.metric("Avg VPH (Past week)", f"{recent_1w['Views Per Hour'].mean():.2f} views/hour")
-            st.metric("Engagement Rate (Past week)", f"{recent_1w['Engagement Rate (%)'].mean():.2f}%")
-        if not recent_1m.empty:
-            st.metric("Avg VPH (Past month)", f"{recent_1m['Views Per Hour'].mean():.2f} views/hour")
-            st.metric("Engagement Rate (Past month)", f"{recent_1m['Engagement Rate (%)'].mean():.2f}%")
+                st.subheader("VPH & Engagement based on Recency")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if not recent_24h.empty:
+                        st.metric("Avg VPH (Past 24h)", f"{recent_24h['Views Per Hour'].mean():.2f} views/hour")
+                    if not recent_3d.empty:
+                        st.metric("Avg VPH (Past 3 days)", f"{recent_3d['Views Per Hour'].mean():.2f} views/hour")
+                    if not recent_1w.empty:
+                        st.metric("Avg VPH (Past week)", f"{recent_1w['Views Per Hour'].mean():.2f} views/hour")
+                    if not recent_1m.empty:
+                        st.metric("Avg VPH (Past month)", f"{recent_1m['Views Per Hour'].mean():.2f} views/hour")
+                with col2:
+                    if not recent_24h.empty:
+                        st.metric("Engagement Rate (Past 24h)", f"{recent_24h['Engagement Rate (%)'].mean():.2f}%")
+                    if not recent_3d.empty:
+                        st.metric("Engagement Rate (Past 3 days)", f"{recent_3d['Engagement Rate (%)'].mean():.2f}%")
+                    if not recent_1w.empty:
+                        st.metric("Engagement Rate (Past week)", f"{recent_1w['Engagement Rate (%)'].mean():.2f}%")
+                    if not recent_1m.empty:
+                        st.metric("Engagement Rate (Past month)", f"{recent_1m['Engagement Rate (%)'].mean():.2f}%")
 
-        st.subheader("Video Performance Table")
-        st.dataframe(videos, use_container_width=True)
+                st.subheader("Video Performance Table")
+                st.dataframe(videos, use_container_width=True)
+            else:
+                st.warning("Could not retrieve video details for this channel.")
 else:
     st.warning("Please enter the YouTube channel URL")
-
